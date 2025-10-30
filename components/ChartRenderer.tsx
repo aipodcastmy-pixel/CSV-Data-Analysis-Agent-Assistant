@@ -102,7 +102,16 @@ export const ChartRenderer = forwardRef<ChartRendererHandle, ChartRendererProps>
             },
             scales: {
                 x: {
-                    ticks: { color: '#9ca3af' },
+                    ticks: { 
+                        color: '#9ca3af',
+                        callback: function(value: number | string) {
+                            const label = this.getLabelForValue(Number(value));
+                            if (typeof label === 'string' && label.length > 30) {
+                                return label.substring(0, 27) + '...';
+                            }
+                            return label;
+                        }
+                    },
                     grid: { color: '#374151' } 
                 },
                 y: {

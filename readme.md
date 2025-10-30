@@ -6,7 +6,8 @@ This advanced tool allows users to have a conversation with their data, asking f
 
 ## ✨ Key Features
 
-*   **Local First & Private**: All CSV processing and data aggregation happens directly in your browser. Your data never leaves your computer unless you enable Cloud AI.
+*   **Local First & Private**: All CSV processing and data aggregation happens directly in your browser. Your data never leaves your computer.
+*   **Intelligent Fault Tolerance & Self-Correction**: The agent is robust. If an API call fails, it automatically retries. If the AI generates faulty JavaScript code for data preparation, it will analyze the error and attempt to correct its own code, ensuring a smoother analysis pipeline.
 *   **Persistent Session History**: Your work is always safe. The app continuously saves your current analysis to a "live session". If you reload the page, you'll be right back where you left off. When you upload a new file, your previous session is automatically archived to the History panel.
 *   **AI-Powered Data Preparation**: The assistant acts as a data engineer. It intelligently analyzes your raw CSV for complex structures, summary rows, or other anomalies. It then writes and executes a custom JavaScript function on-the-fly to clean and reshape your data into a tidy, analysis-ready format.
 *   **Configurable AI Settings**:
@@ -16,11 +17,11 @@ This advanced tool allows users to have a conversation with their data, asking f
 *   **AI-Powered Analysis Generation**: On file upload, the AI assistant proactively generates a set of diverse and insightful analysis plans and visualizes them as cards.
 *   **Interactive & Customizable Charts**:
     *   Switch between Bar, Line, and Pie charts on-the-fly for any analysis.
-    *   **Top N Filtering**: Focus on what matters. For charts with many categories, you can instantly filter to see the "Top 5", "Top 10", or "Top 20" items, with all others grouped into an "Others" category.
+    *   **Top N Filtering**: Focus on what matters. For charts with many categories, you can instantly filter to see the "Top 5", "Top 10", or "Top 20" items, with all others grouped into an "Others" category. You can also hide the "Others" group for a clearer view.
     *   Zoom and pan on charts to explore dense data.
     *   Click on data points to see details and multi-select for comparison.
 *   **Conversational AI Chat**: Engage in a dialogue with the AI. Ask for new analyses, inquire about data points, or request summaries. The AI maintains conversation context.
-*   **🤖 "Point and Talk" Interaction**: The AI now has deep context of the on-screen charts, including their underlying data. It can perform a sequence of actions to guide you, creating a more natural conversational flow. For example, it can first highlight a relevant chart and then follow up with a detailed text explanation in the chat, effectively 'pointing' at what it's discussing. It can:
+*   **🤖 Insightful "Point and Talk" Interaction**: The AI acts as an expert analyst, providing synthesized insights and business interpretations, not just descriptions. It can perform a sequence of actions to guide you, creating a more natural conversational flow. For example, it can first highlight a relevant chart and then follow up with a detailed text explanation in the chat, effectively 'pointing' at what it's discussing and explaining its business impact. It can:
     *   **Highlight Cards**: Asks the AI to "highlight the card showing sales by region" and it will scroll to it and add a visual highlight.
     *   **Change Visualizations**: Tell the AI to "change the monthly users chart to a line graph".
     *   **Show Raw Data**: Ask to "show me the data for the top products card".
@@ -42,7 +43,7 @@ Your settings are saved securely in your browser's local storage and are never t
 
 1.  **Configure your API Key**: Before you begin, open the settings (⚙️) and add your Gemini API Key.
 2.  **Upload a CSV file**: Drag and drop your file or use the file selector. This starts a new session. The AI will automatically clean and reshape the data if needed. Your work is saved automatically.
-3.  **Review Auto-Analysis**: If Cloud AI is enabled, the assistant will automatically generate several analysis cards.
+3.  **Review Auto-Analysis**: The assistant will automatically generate several analysis cards.
 4.  **Interact with Charts**:
     *   Use the icons on a card to switch between bar, line, and pie charts.
     *   Use the "Show Top" dropdown to filter noisy charts.

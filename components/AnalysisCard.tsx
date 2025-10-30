@@ -1,5 +1,5 @@
 
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useMemo } from 'react';
 import { AnalysisCardData, ChartType } from '../types';
 import { ChartRenderer, ChartRendererHandle } from './ChartRenderer';
 import { DataTable } from './DataTable';
@@ -50,11 +50,15 @@ export const AnalysisCard: React.FC<AnalysisCardProps> = ({ cardData, onChartTyp
     const mandarinSummary = summaryParts[1]?.trim();
 
     const valueKey = plan.valueColumn || 'count';
-    let dataForDisplay = topN ? applyTopNWithOthers(aggregatedData, plan.groupByColumn, valueKey, topN) : aggregatedData;
     
-    if (topN && hideOthers) {
-        dataForDisplay = dataForDisplay.filter(row => row[plan.groupByColumn] !== 'Others');
-    }
+    // Memoize the data transformation to prevent unnecessary re-renders of the chart
+    const dataForDisplay = useMemo(() => {
+        let data = topN ? applyTopNWithOthers(aggregatedData, plan.groupByColumn, valueKey, topN) : aggregatedData;
+        if (topN && hideOthers) {
+            data = data.filter(row => row[plan.groupByColumn] !== 'Others');
+        }
+        return data;
+    }, [aggregatedData, topN, hideOthers, plan.groupByColumn, valueKey]);
 
 
     const handleExport = async (format: 'png' | 'csv' | 'html') => {

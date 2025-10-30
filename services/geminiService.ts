@@ -1,5 +1,4 @@
 
-
 // Fix: Import GenerateContentResponse to correctly type the API response.
 import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
 import { AnalysisPlan, CsvData, ColumnProfile, AnalysisCardData, AiChatResponse, ChatMessage, Settings, DataPreparationPlan, CardContext } from '../types';
@@ -58,67 +57,94 @@ export const generateDataPreparationPlan = async (
 ): Promise<DataPreparationPlan> => {
     if (!settings.apiKey) return { explanation: "No transformation needed.", jsFunctionBody: null };
     
-    const ai = new GoogleGenAI({ apiKey: settings.apiKey });
-    const columnNames = columns.map(c => c.name).join(', ');
-    
-    const prompt = `
-        You are an expert data engineer. Your task is to analyze a raw dataset and, if necessary, provide the body of a JavaScript function to clean and reshape it into a tidy, analysis-ready format.
+    let lastError: Error | undefined;
 
-        A tidy format has:
-        1.  Each variable as a column.
-        2.  Each observation as a row.
-        3.  Each type of observational unit as a table.
-
-        Common problems to fix:
-        - **Summary Rows**: Filter out rows containing words like 'Total', 'Subtotal', 'Grand Total'.
-        - **Crosstab/Wide Format**: Unpivot data where column headers are values (e.g., years, regions, quarters).
-        - **Multi-header Rows**: Skip initial rows that are part of a complex header until the true header row is found (though PapaParse often handles this, assume the data arg is the parsed result and may contain junk rows at the start).
-
-        Dataset Columns: ${columnNames}
-
-        Sample Data (up to 20 rows):
-        ${JSON.stringify(sampleData, null, 2)}
-
-        Your task:
-        1.  Analyze the sample data and column names.
-        2.  Determine if any cleaning or reshaping is required.
-        3.  If yes, write the body of a JavaScript function to perform the transformation. This function receives one argument, \`data\`, which is the full dataset as an array of objects.
-        4.  Provide a concise, user-facing 'explanation' of what the function will do.
-        5.  If NO transformation is needed, return the explanation "No data transformation needed." and set 'jsFunctionBody' to null.
-
-        **CRITICAL REQUIREMENT**: The JavaScript code you generate **MUST** include a \`return\` statement as its final operation to return the transformed array. For example: \`return myCleanedData;\`. If you do not include a \`return\` statement, the application will fail.
-
-        **Example 1: Cleaning needed**
-        - Data has a "Grand Total" row.
-        - Explanation: "Removed 1 summary row from the dataset."
-        - jsFunctionBody: "return data.filter(row => !row['Region'] || !row['Region'].toLowerCase().includes('total'));"
-
-        **Example 2: Reshaping needed (crosstab)**
-        - Columns: ['Product', 'Q1_Sales', 'Q2_Sales']
-        - Explanation: "Reshaped the data from a wide (crosstab) format to a long format for analysis."
-        - jsFunctionBody: "const reshapedData = [];\\ndata.forEach(row => {\\n    const valueColumns = ['Q1_Sales', 'Q2_Sales'];\\n    valueColumns.forEach(valueCol => {\\n        const newRow = {\\n            'Product': row['Product'],\\n            'Quarter': valueCol,\\n            'Sales': row[valueCol]\\n        };\\n        reshapedData.push(newRow);\\n    });\\n});\\nreturn reshapedData;"
-
-        Your response must be a valid JSON object adhering to the provided schema. The 'jsFunctionBody' should be a single-line JSON string (use \\n for newlines if needed).
-    `;
-
-    try {
-        // Fix: Explicitly type the response to avoid 'unknown' type on .text property.
-        const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
-            model: settings.model,
-            contents: prompt,
-            config: {
-                responseMimeType: 'application/json',
-                responseSchema: dataPreparationSchema,
-            },
-        }));
+    for(let i=0; i < 3; i++) { // Self-correction loop: 1 initial attempt + 2 retries
+        try {
+            const ai = new GoogleGenAI({ apiKey: settings.apiKey });
+            const columnNames = columns.map(c => c.name).join(', ');
+            
+            const prompt = `
+                You are an expert data engineer. Your task is to analyze a raw dataset and, if necessary, provide the body of a JavaScript function to clean and reshape it into a tidy, analysis-ready format.
         
-        const jsonStr = response.text.trim();
-        return JSON.parse(jsonStr) as DataPreparationPlan;
+                A tidy format has:
+                1.  Each variable as a column.
+                2.  Each observation as a row.
+                3.  Each type of observational unit as a table.
+        
+                Common problems to fix:
+                - **Summary Rows**: Filter out rows containing words like 'Total', 'Subtotal', 'Grand Total'.
+                - **Crosstab/Wide Format**: Unpivot data where column headers are values (e.g., years, regions, quarters).
+                - **Multi-header Rows**: Skip initial rows that are part of a complex header until the true header row is found (though PapaParse often handles this, assume the data arg is the parsed result and may contain junk rows at the start).
+        
+                Dataset Columns: ${columnNames}
+        
+                Sample Data (up to 20 rows):
+                ${JSON.stringify(sampleData, null, 2)}
+                
+                ${lastError ? `On the previous attempt, your generated code failed with this error: "${lastError.message}". Please analyze the error and the data, then provide a corrected JavaScript function body.` : ''}
 
-    } catch (error) {
-        console.error("Error creating data preparation plan:", error);
-        return { explanation: "AI analysis for data preparation failed.", jsFunctionBody: null };
+                Your task:
+                1.  Analyze the sample data and column names.
+                2.  Determine if any cleaning or reshaping is required.
+                3.  If yes, write the body of a JavaScript function to perform the transformation. This function receives one argument, \`data\`, which is the full dataset as an array of objects.
+                4.  Provide a concise, user-facing 'explanation' of what the function will do.
+                5.  If NO transformation is needed, return the explanation "No data transformation needed." and set 'jsFunctionBody' to null.
+        
+                **CRITICAL REQUIREMENT**: The JavaScript code you generate **MUST** include a \`return\` statement as its final operation to return the transformed array. For example: \`return myCleanedData;\`. If you do not include a \`return\` statement, the application will fail.
+        
+                **Example 1: Cleaning needed**
+                - Data has a "Grand Total" row.
+                - Explanation: "Removed 1 summary row from the dataset."
+                - jsFunctionBody: "return data.filter(row => !row['Region'] || !row['Region'].toLowerCase().includes('total'));"
+        
+                **Example 2: Reshaping needed (crosstab)**
+                - Columns: ['Product', 'Q1_Sales', 'Q2_Sales']
+                - Explanation: "Reshaped the data from a wide (crosstab) format to a long format for analysis."
+                - jsFunctionBody: "const reshapedData = [];\\ndata.forEach(row => {\\n    const valueColumns = ['Q1_Sales', 'Q2_Sales'];\\n    valueColumns.forEach(valueCol => {\\n        const newRow = {\\n            'Product': row['Product'],\\n            'Quarter': valueCol,\\n            'Sales': row[valueCol]\\n        };\\n        reshapedData.push(newRow);\\n    });\\n});\\nreturn reshapedData;"
+        
+                Your response must be a valid JSON object adhering to the provided schema. The 'jsFunctionBody' should be a single-line JSON string (use \\n for newlines if needed).
+            `;
+        
+            // Wrap the API call in `withRetry` to handle transient network errors even during self-correction attempts.
+            const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
+                model: settings.model,
+                contents: prompt,
+                config: {
+                    responseMimeType: 'application/json',
+                    responseSchema: dataPreparationSchema,
+                },
+            }));
+            
+            const jsonStr = response.text.trim();
+            const plan = JSON.parse(jsonStr) as DataPreparationPlan;
+
+            // Test execution before returning
+            if (plan.jsFunctionBody) {
+                try {
+                    const transformFunction = new Function('data', plan.jsFunctionBody);
+                    const sampleResult = transformFunction(sampleData);
+                    if (!Array.isArray(sampleResult)) {
+                        throw new Error("Generated function did not return an array.");
+                    }
+                    return plan; // Success
+                } catch (e) {
+                    lastError = e as Error;
+                    console.warn(`AI self-correction attempt ${i + 1} failed due to JS execution error. Retrying...`, lastError);
+                    continue; // Go to next iteration of the loop to ask AI to fix code
+                }
+            }
+            return plan; // No function body, success.
+        
+        } catch (error) {
+            console.error(`Error in data preparation plan generation (Attempt ${i+1}):`, error);
+            lastError = error as Error;
+            // If it's the last attempt, we'll fall through and throw the final error.
+        }
     }
+
+    // If all retries/self-correction attempts failed
+    throw new Error(`AI failed to generate a valid data preparation plan after multiple attempts. Last error: ${lastError?.message}`);
 };
 
 export const generateAnalysisPlans = async (
@@ -333,9 +359,15 @@ export const generateChatResponse = async (
     const history = chatHistory.map(m => `${m.sender}: ${m.text}`).join('\n');
 
     const prompt = `
-        You are a helpful and conversational data analysis assistant. Your task is to respond to the user by breaking down their request into a sequence of actions. Your responses should be in ${settings.language}.
+        You are an expert data analyst and business strategist. Your task is to respond to the user by providing insightful analysis and breaking down your response into a sequence of actions. Your responses should be in ${settings.language}.
 
         Your entire knowledge base consists of the user's data and the analysis cards currently on the screen.
+        
+        Analytical Principles:
+        1.  **Synthesize, Don't Just Describe**: Do not simply state what a chart shows (e.g., "This card shows sales by department"). Instead, connect the dots between multiple cards if relevant to provide a cohesive narrative.
+        2.  **Explain the "Why" and "So What?"**: Go beyond the numbers. Explain what they mean for the business. Instead of "Office Expenses has 77 transactions", say "Office Expenses is a high-frequency category with 77 transactions, likely representing numerous small operational purchases. Its average value is 93.86, suggesting these are routine costs."
+        3.  **Be Proactive**: Identify and highlight key trends, significant outliers, or interesting patterns, even if the user doesn't explicitly ask. Frame your findings as business insights.
+        4.  **Use Business Language**: Talk about performance, trends, contribution, outliers, and potential impact.
 
         You have access to a dataset with:
         - Categorical columns: ${categoricalCols.join(', ')}
@@ -366,7 +398,7 @@ export const generateChatResponse = async (
             2. A 'dom_action' to 'highlightCard' for the correct cardId.
             3. A 'text_response' action with the explanation of the trend (which you derive from the aggregatedDataSample for that card).
         - Always prefer to be conversational. Use 'text_response' actions to acknowledge the user and explain what you are doing.
-        - If the user asks a question about a card's data, use the provided 'aggregatedDataSample' to find the answer and respond with a 'text_response'.
+        - If the user asks a question about a card's data, use the provided 'aggregatedDataSample' to find the answer and respond with a 'text_response' that follows your Analytical Principles.
 
         Your output MUST be a single JSON object with an "actions" key containing an array of action objects.
     `;

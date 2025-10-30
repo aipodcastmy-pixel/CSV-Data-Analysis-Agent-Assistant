@@ -180,8 +180,7 @@ const App: React.FC = () => {
     const handleFileUpload = useCallback(async (file: File) => {
         if (!isMounted.current) return;
 
-        // FIX: Archive the current session using the current state BEFORE resetting it.
-        // This avoids race conditions with debounced saving.
+        // Archive the current session using the current state BEFORE resetting it.
         if (appState.csvData && appState.csvData.data.length > 0) {
             const archiveId = `report-${Date.now()}`;
             const existingSession = await getReport(CURRENT_SESSION_KEY);
@@ -264,13 +263,14 @@ const App: React.FC = () => {
 
         } catch (error) {
             console.error('File processing error:', error);
-            const errorMessage = error instanceof Error ? error.message : String(error);
-            addProgress(`Error: ${errorMessage}`, 'error');
-            // If data prep fails, halt but keep the original data available
-            if (error instanceof Error && error.message.includes('data transformation failed')) {
-                // Find a way to revert to pre-transformation state or just stop gracefully.
-                // For now, we set isBusy to false and let user see the error.
+            let errorMessage = error instanceof Error ? error.message : String(error);
+
+            // Provide a more user-friendly message for the specific data prep failure case.
+            if (error instanceof Error && error.message.startsWith('AI failed to generate a valid data preparation plan')) {
+                errorMessage = `The AI failed to prepare your data for analysis, even after several self-correction attempts. This can happen with very unusual or complex file formats. Please check the file or try another one. Final error: ${error.message}`;
             }
+            
+            addProgress(`File Processing Error: ${errorMessage}`, 'error');
 
         } finally {
             if (isMounted.current) {
