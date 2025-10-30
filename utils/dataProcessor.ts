@@ -11,6 +11,24 @@ const sanitizeValue = (value: string): string => {
     return value;
 };
 
+/**
+ * A more robust numeric parser that handles common formats like currency and commas.
+ * It returns a number if successful, or null if parsing fails.
+ */
+const parseNumericValue = (value: any): number | null => {
+    if (value === null || value === undefined || String(value).trim() === '') {
+        return null;
+    }
+    // Convert to string, remove common currency symbols, commas, and trailing %
+    const cleanedString = String(value)
+        .replace(/[$€,]/g, '')
+        .trim();
+    
+    const num = Number(cleanedString);
+    return isNaN(num) ? null : num;
+};
+
+
 export const processCsv = (file: File): Promise<CsvData> => {
     return new Promise((resolve, reject) => {
         Papa.parse(file, {
@@ -42,17 +60,21 @@ export const profileData = (data: CsvData): ColumnProfile[] => {
     for (const header of headers) {
         let isNumerical = true;
         const values = data.map(row => row[header]);
+        let numericCount = 0;
         
         for (const value of values) {
-            if (value === null || value === '') continue;
-            if (isNaN(Number(value))) {
-                isNumerical = false;
-                break;
+            const parsedNum = parseNumericValue(value);
+            if (value !== null && String(value).trim() !== '') {
+                if (parsedNum === null) {
+                    isNumerical = false;
+                    break;
+                }
+                numericCount++;
             }
         }
 
-        if (isNumerical) {
-            const numericValues = values.map(Number).filter(v => !isNaN(v));
+        if (isNumerical && numericCount > 0) {
+            const numericValues = values.map(parseNumericValue).filter((v): v is number => v !== null);
             profiles.push({
                 name: header,
                 type: 'numerical',
@@ -65,7 +87,7 @@ export const profileData = (data: CsvData): ColumnProfile[] => {
                 name: header,
                 type: 'categorical',
                 uniqueValues: uniqueValues.size,
-                missingPercentage: (values.filter(v => v === null || v === '').length / data.length) * 100
+                missingPercentage: (values.filter(v => v === null || String(v).trim() === '').length / data.length) * 100
              });
         }
     }
@@ -79,12 +101,15 @@ export const executePlan = (data: CsvData, plan: AnalysisPlan): CsvData => {
 
     data.forEach(row => {
         const groupKey = String(row[groupByColumn]);
+        if (groupKey === 'undefined' || groupKey === 'null') return; // Skip rows with no group key
+        
         if (!groups[groupKey]) {
             groups[groupKey] = [];
         }
+
         if (valueColumn) {
-            const value = Number(row[valueColumn]);
-            if (!isNaN(value)) {
+            const value = parseNumericValue(row[valueColumn]);
+            if (value !== null) {
                 groups[groupKey].push(value);
             }
         } else if (aggregation === 'count') {
@@ -107,7 +132,8 @@ export const executePlan = (data: CsvData, plan: AnalysisPlan): CsvData => {
                 resultValue = values.length;
                 break;
             case 'avg':
-                resultValue = values.reduce((acc, val) => acc + val, 0) / (values.length || 1);
+                const sum = values.reduce((acc, val) => acc + val, 0);
+                resultValue = sum / (values.length || 1);
                 break;
             default:
                 throw new Error(`Unsupported aggregation type: ${aggregation}`);
