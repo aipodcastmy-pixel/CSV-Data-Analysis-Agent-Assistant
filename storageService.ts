@@ -78,28 +78,6 @@ export const deleteReport = async (id: string): Promise<void> => {
     }
 };
 
-// Archives the current session by giving it a permanent ID.
-export const archiveCurrentSession = async (): Promise<void> => {
-    try {
-        const db = await getDb();
-        const currentSession = await db.get(REPORTS_STORE_NAME, CURRENT_SESSION_KEY);
-        if (currentSession) {
-            // Create a new ID for the archived report
-            const archiveId = `report-${currentSession.updatedAt.getTime()}`;
-            const archivedReport: Report = {
-                ...currentSession,
-                id: archiveId,
-            };
-            // Save it under the new ID and delete the old "current" one
-            await db.put(REPORTS_STORE_NAME, archivedReport);
-            await db.delete(REPORTS_STORE_NAME, CURRENT_SESSION_KEY);
-        }
-    } catch (error) {
-        console.error('Failed to archive current session:', error);
-    }
-};
-
-
 // Settings Management
 const defaultSettings: Settings = {
     apiKey: '',

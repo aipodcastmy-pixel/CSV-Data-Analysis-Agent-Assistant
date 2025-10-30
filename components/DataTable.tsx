@@ -1,9 +1,9 @@
 
 import React from 'react';
-import { CsvData } from '../types';
+import { CsvRow } from '../types';
 
 interface DataTableProps {
-    data: CsvData;
+    data: CsvRow[];
 }
 
 export const DataTable: React.FC<DataTableProps> = ({ data }) => {

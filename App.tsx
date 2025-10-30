@@ -8,7 +8,7 @@ import { HistoryPanel } from './components/HistoryPanel';
 import { AnalysisCardData, ChatMessage, ProgressMessage, CsvData, AnalysisPlan, AppState, ColumnProfile, AiAction, CardContext, ChartType, DomAction, Settings, Report, ReportListItem } from './types';
 import { processCsv, profileData, executePlan, executeJavaScriptDataTransform } from './utils/dataProcessor';
 import { generateAnalysisPlans, generateSummary, generateFinalSummary, generateChatResponse, generateDataPreparationPlan } from './services/geminiService';
-import { getReportsList, saveReport, getReport, deleteReport, getSettings, saveSettings, archiveCurrentSession, CURRENT_SESSION_KEY } from './storageService';
+import { getReportsList, saveReport, getReport, deleteReport, getSettings, saveSettings, CURRENT_SESSION_KEY } from './storageService';
 
 const MIN_ASIDE_WIDTH = 320;
 const MAX_ASIDE_WIDTH = 800;
@@ -179,8 +179,23 @@ const App: React.FC = () => {
 
     const handleFileUpload = useCallback(async (file: File) => {
         if (!isMounted.current) return;
+
+        // FIX: Archive the current session using the current state BEFORE resetting it.
+        // This avoids race conditions with debounced saving.
+        if (appState.csvData && appState.csvData.data.length > 0) {
+            const archiveId = `report-${Date.now()}`;
+            const existingSession = await getReport(CURRENT_SESSION_KEY);
+            const sessionToArchive: Report = {
+                id: archiveId,
+                filename: appState.csvData.fileName,
+                createdAt: existingSession?.createdAt || new Date(),
+                updatedAt: new Date(),
+                appState: appState,
+            };
+            await saveReport(sessionToArchive);
+            await deleteReport(CURRENT_SESSION_KEY);
+        }
         
-        await archiveCurrentSession();
         await loadReportsList();
 
         const initialState: AppState = {
@@ -206,9 +221,10 @@ const App: React.FC = () => {
             if (settings.apiKey) {
                 addProgress('AI is analyzing data for cleaning and reshaping...');
                 const initialProfiles = profileData(dataForAnalysis.data);
+                
                 const prepPlan = await generateDataPreparationPlan(initialProfiles, dataForAnalysis.data.slice(0, 20), settings);
                 
-                if (prepPlan.jsFunctionBody) {
+                if (prepPlan && prepPlan.jsFunctionBody) {
                     addProgress(`AI Plan: ${prepPlan.explanation}`);
                     addProgress('Executing AI data transformation...');
                     const originalRowCount = dataForAnalysis.data.length;
@@ -250,13 +266,19 @@ const App: React.FC = () => {
             console.error('File processing error:', error);
             const errorMessage = error instanceof Error ? error.message : String(error);
             addProgress(`Error: ${errorMessage}`, 'error');
+            // If data prep fails, halt but keep the original data available
+            if (error instanceof Error && error.message.includes('data transformation failed')) {
+                // Find a way to revert to pre-transformation state or just stop gracefully.
+                // For now, we set isBusy to false and let user see the error.
+            }
+
         } finally {
             if (isMounted.current) {
                 setAppState(prev => ({ ...prev, isBusy: false }));
                 addProgress('Analysis complete. Ready for chat.');
             }
         }
-    }, [addProgress, runAnalysisPipeline, settings]);
+    }, [appState, addProgress, runAnalysisPipeline, settings]);
 
     const executeDomAction = (action: DomAction) => {
         addProgress(`AI is performing action: ${action.toolName}...`);

@@ -1,4 +1,3 @@
-
 import React, { useState, useCallback } from 'react';
 
 interface FileUploadProps {
@@ -48,7 +47,9 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onFileUpload, isBusy, is
             onDrop={handleDrop}
             className={`flex flex-col items-center justify-center p-12 border-2 border-dashed rounded-lg transition-colors duration-300 ${dragActive ? 'border-blue-500 bg-gray-800' : 'border-gray-600 hover:border-blue-600'} ${isUploadDisabled ? 'cursor-not-allowed opacity-60' : ''}`}
         >
-            <svg className="w-16 h-16 text-gray-500 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-4-4V6a4 4 0 014-4h10a4 4 0 014 4v6a4 4 0 01-4 4H7z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 9v6m3-3H7"></path></svg>
+            <svg className="w-16 h-16 text-gray-500 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V7a2 2 0 012-2h10a2 2 0 012 2v10a2 2 0 01-2 2z"></path>
+            </svg>
             <p className="text-xl text-gray-400 mb-2">Drag & drop your CSV file here</p>
             <p className="text-gray-500">or</p>
             <label htmlFor="file-upload" className={`mt-4 cursor-pointer bg-blue-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors ${isUploadDisabled ? '!bg-gray-500 !cursor-not-allowed' : ''}`}>

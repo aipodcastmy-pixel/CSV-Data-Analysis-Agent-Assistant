@@ -1,6 +1,6 @@
 
 import React, { useEffect, useRef, useImperativeHandle, forwardRef } from 'react';
-import { ChartType, CsvData } from '../types';
+import { ChartType, CsvRow } from '../types';
 
 declare const Chart: any;
 declare const ChartZoom: any;
@@ -10,7 +10,7 @@ export interface ChartRendererHandle {
 }
 interface ChartRendererProps {
     chartType: ChartType;
-    data: CsvData;
+    data: CsvRow[];
     groupByKey: string;
     valueKey: string;
     selectedIndices: number[];
