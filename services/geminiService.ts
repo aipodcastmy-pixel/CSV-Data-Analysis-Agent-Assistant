@@ -1,7 +1,7 @@
 
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { AnalysisPlan, CsvData, ColumnProfile, AnalysisCardData, AiChatResponse, ChatMessage, Settings, DataStructureAnalysis, CleaningPlan } from '../types';
+import { AnalysisPlan, CsvData, ColumnProfile, AnalysisCardData, AiChatResponse, ChatMessage, Settings, DataPreparationPlan } from '../types';
 
 const planSchema = {
   type: Type.ARRAY,
@@ -19,161 +19,99 @@ const planSchema = {
   },
 };
 
-const dataStructureSchema = {
+const dataPreparationSchema = {
     type: Type.OBJECT,
     properties: {
-        format: { type: Type.STRING, enum: ['tidy', 'crosstab'], description: 'The detected format of the data.' },
-        unpivotPlan: {
-            type: Type.OBJECT,
-            description: "Required if format is 'crosstab'. Defines how to unpivot the data.",
-            properties: {
-                indexColumns: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Columns to keep as is (e.g., 'Date', 'Product ID')." },
-                valueColumns: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Columns to be unpivoted (e.g., 'Q1_Sales', 'Q2_Sales', 'Region_A', 'Region_B')." },
-                variableColumnName: { type: Type.STRING, description: "The name for the new column created from the headers of valueColumns (e.g., 'Quarter', 'Region')." },
-                valueColumnName: { type: Type.STRING, description: "The name for the new column that will hold the values from valueColumns (e.g., 'Sales', 'Amount')." },
-            },
-            required: ['indexColumns', 'valueColumns', 'variableColumnName', 'valueColumnName'],
-        },
-    },
-    required: ['format'],
-};
-
-const cleaningPlanSchema = {
-    type: Type.OBJECT,
-    properties: {
-        excludeRows: {
-            type: Type.ARRAY,
-            description: "A list of rules to identify rows that should be excluded from analysis.",
-            items: {
-                type: Type.OBJECT,
-                properties: {
-                    column: { type: Type.STRING, description: "The column to check the rule against." },
-                    contains: { type: Type.STRING, description: "Exclude row if the column value contains this substring (case-insensitive)." },
-                    equals: { type: Type.STRING, description: "Exclude row if the column value exactly equals this string." },
-                    startsWith: { type: Type.STRING, description: "Exclude row if the column value starts with this substring." },
-                },
-                required: ['column']
-            }
+        explanation: { type: Type.STRING, description: "A brief, user-facing explanation of the transformations that will be applied to the data (e.g., 'Removed 3 summary rows and reshaped the data from a cross-tab format')." },
+        jsFunctionBody: {
+            type: Type.STRING,
+            description: "The body of a JavaScript function that takes one argument `data` (an array of objects) and returns the transformed array of objects. This code will be executed to clean and reshape the data. If no transformation is needed, this should be null."
         }
     },
-    required: ['excludeRows']
+    required: ['explanation']
 };
 
-
-export const createDataCleaningPlan = async (
+export const generateDataPreparationPlan = async (
     columns: ColumnProfile[],
     sampleData: CsvData,
     settings: Settings
-): Promise<CleaningPlan> => {
-     if (!settings.apiKey) return { excludeRows: [] };
-
+): Promise<DataPreparationPlan> => {
+    if (!settings.apiKey) return { explanation: "No transformation needed.", jsFunctionBody: null };
+    
     const ai = new GoogleGenAI({ apiKey: settings.apiKey });
     const columnNames = columns.map(c => c.name).join(', ');
-
+    
     const prompt = `
-        You are a data quality analyst. Your task is to identify and create rules to exclude non-data rows from a dataset, such as summary rows (totals, subtotals), empty rows, or report footers.
+        You are an expert data engineer. Your task is to analyze a raw dataset and, if necessary, provide the body of a JavaScript function to clean and reshape it into a tidy, analysis-ready format.
+
+        A tidy format has:
+        1.  Each variable as a column.
+        2.  Each observation as a row.
+        3.  Each type of observational unit as a table.
+
+        Common problems to fix:
+        - **Summary Rows**: Filter out rows containing words like 'Total', 'Subtotal', 'Grand Total'.
+        - **Crosstab/Wide Format**: Unpivot data where column headers are values (e.g., years, regions, quarters).
+        - **Multi-header Rows**: Skip initial rows that are part of a complex header until the true header row is found (though PapaParse often handles this, assume the data arg is the parsed result and may contain junk rows at the start).
 
         Dataset Columns: ${columnNames}
 
-        Sample Data:
+        Sample Data (up to 20 rows):
         ${JSON.stringify(sampleData, null, 2)}
 
-        Analysis:
-        1.  Scan the sample data for rows that are clearly not individual data entries.
-        2.  Look for keywords like 'Total', 'Subtotal', 'Grand Total', 'Summary' in any of the columns. These often indicate summary rows.
-        3.  Also look for rows where key columns are empty, which might indicate a separator or footer row.
-        4.  For each type of row to exclude, create a simple, robust rule. Prefer 'contains' for flexibility. For example, if a row in the 'Product' column says "Grand Total", a good rule is { "column": "Product", "contains": "Total" }.
+        Your task:
+        1.  Analyze the sample data and column names.
+        2.  Determine if any cleaning or reshaping is required.
+        3.  If yes, write the body of a JavaScript function to perform the transformation. This function will receive one argument, \`data\`, which is the full dataset as an array of objects. It MUST return the transformed array.
+        4.  Provide a concise, user-facing 'explanation' of what the function will do.
+        5.  If NO transformation is needed, return the explanation "No data transformation needed." and set 'jsFunctionBody' to null.
 
-        Example:
-        - Sample Row: { "Region": "Grand Total", "Sales": 50000 }
-        - Result: { "excludeRows": [{ "column": "Region", "contains": "Total" }] }
+        **Example 1: Cleaning needed**
+        - Data has a "Grand Total" row.
+        - Explanation: "Removed 1 summary row from the dataset."
+        - jsFunctionBody: "return data.filter(row => !row['Region'] || !row['Region'].toLowerCase().includes('total'));"
 
-        Example:
-        - Sample Row: { "Date": null, "Region": null, "Sales": null }
-        - This is likely a blank row, but it's hard to make a specific rule. Only create rules for rows with clear text indicators like 'Total'.
-
-        If no such rows are found, return an empty 'excludeRows' array.
-        Your response must be a valid JSON object adhering to the provided schema.
-    `;
-
-    try {
-         const response = await ai.models.generateContent({
-            model: settings.model,
-            contents: prompt,
-            config: {
-                responseMimeType: 'application/json',
-                responseSchema: cleaningPlanSchema,
-            },
-        });
-        
-        const jsonStr = response.text.trim();
-        return JSON.parse(jsonStr) as CleaningPlan;
-    } catch (error) {
-        console.error("Error creating data cleaning plan:", error);
-        return { excludeRows: [] }; // Return empty plan on error
-    }
-};
-
-export const analyzeDataStructure = async (
-    columns: ColumnProfile[],
-    sampleData: CsvData,
-    settings: Settings
-): Promise<DataStructureAnalysis> => {
-    if (!settings.apiKey) return { format: 'tidy' };
-
-    const ai = new GoogleGenAI({ apiKey: settings.apiKey });
-    const columnNames = columns.map(c => c.name);
-
-    const prompt = `
-        You are a data structure analyst. Your task is to determine if a dataset is in a 'tidy' (long) format or a 'crosstab' (wide) format.
-
-        - **Tidy Data**: Each row is a single observation. Each column is a variable. This is the standard format.
-        - **Crosstab Data**: Some column headers are values, not variables. For example, columns named '2022', '2023', 'Q1', 'Q2', or 'USA', 'Canada'. This data needs to be "unpivoted" or "melted" to be useful for standard analysis.
-
-        Dataset Columns: ${columnNames.join(', ')}
-
-        Sample Data:
-        ${JSON.stringify(sampleData, null, 2)}
-
-        Analysis:
-        1.  Examine the column names. Do they look like categories (e.g., years, regions, quarters)?
-        2.  If it looks like a crosstab, identify the 'indexColumns' (columns that uniquely identify a row, like 'Product' or 'Employee Name') and the 'valueColumns' (the columns that should be unpivoted).
-        3.  Propose a sensible 'variableColumnName' (for the headers of the value columns) and a 'valueColumnName' (for the cell values).
-
-        Example 1:
+        **Example 2: Reshaping needed (crosstab)**
         - Columns: ['Product', 'Q1_Sales', 'Q2_Sales']
-        - Result: format: 'crosstab', unpivotPlan: { indexColumns: ['Product'], valueColumns: ['Q1_Sales', 'Q2_Sales'], variableColumnName: 'Quarter', valueColumnName: 'Sales' }
+        - Explanation: "Reshaped the data from a wide (crosstab) format to a long format for analysis."
+        - jsFunctionBody: \`
+            const reshapedData = [];
+            const indexColumns = ['Product'];
+            const valueColumns = ['Q1_Sales', 'Q2_Sales'];
+            data.forEach(row => {
+                const baseObject = {};
+                indexColumns.forEach(col => { baseObject[col] = row[col]; });
+                valueColumns.forEach(valueCol => {
+                    const newRow = { ...baseObject };
+                    newRow['Quarter'] = valueCol;
+                    newRow['Sales'] = row[valueCol];
+                    reshapedData.push(newRow);
+                });
+            });
+            return reshapedData;
+        \`
 
-        Example 2:
-        - Columns: ['Date', 'Region', 'Sales']
-        - Result: format: 'tidy'
-
-        Example 3:
-        - Columns: ['Department', 'Jan', 'Feb', 'Mar']
-        - Result: format: 'crosstab', unpivotPlan: { indexColumns: ['Department'], valueColumns: ['Jan', 'Feb', 'Mar'], variableColumnName: 'Month', valueColumnName: 'Value' }
-        
-        Your response must be a valid JSON object adhering to the provided schema.
+        Your response must be a valid JSON object adhering to the provided schema. The 'jsFunctionBody' should be a single-line JSON string (use \\n for newlines if needed).
     `;
-    
+
     try {
         const response = await ai.models.generateContent({
             model: settings.model,
             contents: prompt,
             config: {
                 responseMimeType: 'application/json',
-                responseSchema: dataStructureSchema,
+                responseSchema: dataPreparationSchema,
             },
         });
         
         const jsonStr = response.text.trim();
-        return JSON.parse(jsonStr) as DataStructureAnalysis;
+        return JSON.parse(jsonStr) as DataPreparationPlan;
+
     } catch (error) {
-        console.error("Error analyzing data structure:", error);
-        // Default to tidy format on failure to avoid breaking the pipeline
-        return { format: 'tidy' };
+        console.error("Error creating data preparation plan:", error);
+        return { explanation: "AI analysis for data preparation failed.", jsFunctionBody: null };
     }
 };
-
 
 export const generateAnalysisPlans = async (
     columns: ColumnProfile[], 
@@ -412,7 +350,7 @@ export const generateChatResponse = async (
         Decision-making process:
         - THINK STEP-BY-STEP. A single user request might require multiple actions.
         - If the user asks to see something and then explain it, this is a multi-step action.
-        - **Multi-step example**: If user says "Highlight the monthly sales card and explain the trend", you must return TWO actions in the array:
+        - **Multi-step example**: If user says "Highlight the monthly sales card and explain the trend", you must return THREE actions in the array:
             1. A 'text_response' action that says something like "Certainly, I'll highlight that card for you."
             2. A 'dom_action' to 'highlightCard' for the correct cardId.
             3. A 'text_response' action with the explanation of the trend.

@@ -98,6 +98,7 @@ export const getSettings = (): Settings => {
     try {
         const settingsJson = localStorage.getItem(SETTINGS_KEY);
         if (settingsJson) {
+            // Merge stored settings with defaults to ensure all keys are present
             return { ...defaultSettings, ...JSON.parse(settingsJson) };
         }
     } catch (error) {

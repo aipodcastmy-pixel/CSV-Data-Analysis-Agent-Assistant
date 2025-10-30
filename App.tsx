@@ -6,8 +6,8 @@ import { FileUpload } from './components/FileUpload';
 import { SettingsModal } from './components/SettingsModal';
 import { HistoryPanel } from './components/HistoryPanel';
 import { AnalysisCardData, ChatMessage, ProgressMessage, CsvData, AnalysisPlan, AppState, ColumnProfile, AiChatResponse, ChartType, DomAction, Settings, Report, ReportListItem } from './types';
-import { processCsv, profileData, executePlan, unpivotData, cleanData } from './utils/dataProcessor';
-import { generateAnalysisPlans, generateSummary, generateFinalSummary, generateChatResponse, analyzeDataStructure, createDataCleaningPlan } from './services/geminiService';
+import { processCsv, profileData, executePlan, executeJavaScriptDataTransform } from './utils/dataProcessor';
+import { generateAnalysisPlans, generateSummary, generateFinalSummary, generateChatResponse, generateDataPreparationPlan } from './services/geminiService';
 import { getReportsList, saveReport, getReport, deleteReport, getSettings, saveSettings } from './storageService';
 
 const MIN_ASIDE_WIDTH = 320;
@@ -42,7 +42,7 @@ const App: React.FC = () => {
     const [asideWidth, setAsideWidth] = useState(window.innerWidth / 4 > MIN_ASIDE_WIDTH ? window.innerWidth / 4 : MIN_ASIDE_WIDTH);
     const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
     const [isHistoryPanelOpen, setIsHistoryPanelOpen] = useState(false);
-    const [settings, setSettings] = useState<Settings>(getSettings);
+    const [settings, setSettings] = useState<Settings>(() => getSettings());
     const [reportsList, setReportsList] = useState<ReportListItem[]>([]);
     const [currentReportId, setCurrentReportId] = useState<string | null>(null);
 
@@ -52,7 +52,6 @@ const App: React.FC = () => {
     useEffect(() => {
         isMounted.current = true;
         loadReportsList();
-        setSettings(getSettings());
         return () => { isMounted.current = false; };
     }, []);
 
@@ -196,44 +195,30 @@ const App: React.FC = () => {
             let profiles: ColumnProfile[];
 
             if (appState.useCloudAI && settings.apiKey) {
-                addProgress('AI is checking for data quality issues...');
+                addProgress('AI is analyzing data for cleaning and reshaping...');
                 const initialProfiles = profileData(rawData);
-                const cleaningPlan = await createDataCleaningPlan(initialProfiles, rawData.slice(0, 10), settings);
-
-                if (cleaningPlan && cleaningPlan.excludeRows.length > 0) {
+                const prepPlan = await generateDataPreparationPlan(initialProfiles, rawData.slice(0, 20), settings);
+                
+                if (prepPlan.jsFunctionBody) {
+                    addProgress(`AI Plan: ${prepPlan.explanation}`);
+                    addProgress('Executing AI data transformation...');
                     const originalRowCount = dataForAnalysis.length;
-                    dataForAnalysis = cleanData(dataForAnalysis, cleaningPlan);
-                    const removedCount = originalRowCount - dataForAnalysis.length;
-                    addProgress(`Data cleaning applied. Excluded ${removedCount} summary/total row(s).`);
+                    dataForAnalysis = executeJavaScriptDataTransform(dataForAnalysis, prepPlan.jsFunctionBody);
+                    const newRowCount = dataForAnalysis.length;
+                    addProgress(`Transformation complete. Row count changed from ${originalRowCount} to ${newRowCount}.`);
                 } else {
-                    addProgress('No data quality issues found.');
+                     addProgress('AI found no necessary data transformations.');
                 }
-
+                
                 if (dataForAnalysis.length === 0) {
-                    addProgress('The dataset is empty after cleaning. Halting analysis.', 'error');
-                    throw new Error('The dataset became empty after removing summary rows.');
+                    addProgress('The dataset is empty after AI transformation. Halting analysis.', 'error');
+                    throw new Error('The dataset became empty after AI-driven cleaning or reshaping.');
                 }
 
-                addProgress('AI is analyzing data structure...');
-                profiles = profileData(dataForAnalysis); 
-                const structureAnalysis = await analyzeDataStructure(profiles, dataForAnalysis.slice(0, 5), settings);
+                addProgress('Profiling prepared data...');
+                profiles = profileData(dataForAnalysis);
+                addProgress('Profiling complete.');
 
-                if (structureAnalysis.format === 'crosstab' && structureAnalysis.unpivotPlan) {
-                    addProgress('Cross-tab format detected. Reshaping data...');
-                    dataForAnalysis = unpivotData(dataForAnalysis, structureAnalysis.unpivotPlan);
-                    
-                    if (dataForAnalysis.length === 0) {
-                        addProgress('Data is empty after reshaping. Halting analysis.', 'error');
-                        throw new Error('Data became empty after attempting to reshape from cross-tab format. The AI might have misidentified the data structure.');
-                    }
-
-                    addProgress(`Data reshaped. New columns: ${Object.keys(dataForAnalysis[0]).join(', ')}`);
-                    addProgress('Re-profiling reshaped data...');
-                    profiles = profileData(dataForAnalysis);
-                    addProgress('Re-profiling complete.');
-                } else {
-                    addProgress('Standard data format confirmed.');
-                }
 
                 if (!isMounted.current) return;
                 setAppState(prev => ({ ...prev, csvData: dataForAnalysis, columnProfiles: profiles }));

@@ -1,4 +1,4 @@
-import { CsvData, CsvRow, AnalysisPlan, ColumnProfile, AggregationType, UnpivotPlan, CleaningPlan, CleaningRule } from '../types';
+import { CsvData, CsvRow, AnalysisPlan, ColumnProfile, AggregationType } from '../types';
 
 declare const Papa: any;
 
@@ -69,7 +69,7 @@ export const processCsv = (file: File): Promise<CsvData> => {
 };
 
 export const profileData = (data: CsvData): ColumnProfile[] => {
-    if (data.length === 0) return [];
+    if (!data || data.length === 0) return [];
     const headers = Object.keys(data[0]);
     const profiles: ColumnProfile[] = [];
 
@@ -110,47 +110,27 @@ export const profileData = (data: CsvData): ColumnProfile[] => {
     return profiles;
 };
 
-export const unpivotData = (data: CsvData, plan: UnpivotPlan): CsvData => {
-    const { indexColumns, valueColumns, variableColumnName, valueColumnName } = plan;
-    const reshapedData: CsvData = [];
-
-    data.forEach(row => {
-        const baseObject: CsvRow = {};
-        indexColumns.forEach(col => {
-            baseObject[col] = row[col];
-        });
-
-        valueColumns.forEach(valueCol => {
-            if (row.hasOwnProperty(valueCol)) {
-                const newRow = { ...baseObject };
-                newRow[variableColumnName] = valueCol;
-                newRow[valueColumnName] = row[valueCol];
-                reshapedData.push(newRow);
-            }
-        });
-    });
-
-    return reshapedData;
-};
-
-export const cleanData = (data: CsvData, plan: CleaningPlan): CsvData => {
-    const { excludeRows } = plan;
-    if (excludeRows.length === 0) return data;
-
-    return data.filter(row => {
-        for (const rule of excludeRows) {
-            const cellValue = row[rule.column];
-            if (cellValue === undefined || cellValue === null) continue;
-
-            const cellValueStr = String(cellValue).trim().toLowerCase();
-            
-            if (rule.contains && cellValueStr.includes(rule.contains.toLowerCase())) return false; // Exclude if it matches
-            if (rule.equals && cellValueStr === rule.equals.toLowerCase()) return false;
-            if (rule.startsWith && cellValueStr.startsWith(rule.startsWith.toLowerCase())) return false;
+export const executeJavaScriptDataTransform = (data: CsvData, jsFunctionBody: string): CsvData => {
+    try {
+        const transformFunction = new Function('data', jsFunctionBody);
+        const result = transformFunction(data);
+        
+        if (!Array.isArray(result)) {
+            throw new Error('AI-generated transform function did not return an array.');
         }
-        return true; // Keep if no rules match
-    });
-};
+        
+        // Basic check to ensure it still looks like CsvData
+        if (result.length > 0 && typeof result[0] !== 'object') {
+             throw new Error('AI-generated transform function did not return an array of objects.');
+        }
+
+        return result as CsvData;
+    } catch (error) {
+        console.error("Error executing AI-generated JavaScript:", error);
+        throw new Error(`AI-generated data transformation failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+}
+
 
 export const executePlan = (data: CsvData, plan: AnalysisPlan): CsvData => {
     const { groupByColumn, valueColumn, aggregation } = plan;

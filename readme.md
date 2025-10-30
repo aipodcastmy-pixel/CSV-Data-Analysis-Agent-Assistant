@@ -9,8 +9,7 @@ This advanced tool allows users to have a conversation with their data, asking f
 
 *   **Local First & Private**: All CSV processing and data aggregation happens directly in your browser. Your data never leaves your computer unless you enable Cloud AI.
 *   **Session History**: Automatically saves your analysis sessions (data, charts, and chat history) to your browser. Use the History panel to load, review, or delete past reports, turning the tool into a persistent analysis workbook.
-*   **Automated Data Cleaning**: The AI assistant intelligently detects and excludes common report artifacts like "Total" and "Subtotal" rows, ensuring higher quality analysis from real-world, messy data exports.
-*   **Automatic Cross-Tab Handling**: The AI intelligently detects if your data is in a "wide" or "cross-tab" format (like a pivot table) and automatically reshapes it into a "tidy" format for accurate analysis.
+*   **AI-Powered Data Preparation**: The assistant acts as a data engineer. It intelligently analyzes your raw CSV for complex structures, summary rows, or other anomalies. It then writes and executes a custom JavaScript function on-the-fly to clean and reshape your data into a tidy, analysis-ready format.
 *   **Configurable AI Settings**:
     *   Securely use your own Google Gemini API key.
     *   Switch between `gemini-2.5-flash` (fast) and `gemini-2.5-pro` (powerful).

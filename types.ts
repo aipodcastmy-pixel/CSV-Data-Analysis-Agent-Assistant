@@ -77,27 +77,9 @@ export interface AiChatResponse {
     actions: AiAction[];
 }
 
-export interface UnpivotPlan {
-    indexColumns: string[];
-    valueColumns: string[];
-    variableColumnName: string;
-    valueColumnName: string;
-}
-
-export interface DataStructureAnalysis {
-    format: 'tidy' | 'crosstab';
-    unpivotPlan?: UnpivotPlan;
-}
-
-export interface CleaningRule {
-    column: string;
-    contains?: string;
-    equals?: string;
-    startsWith?: string;
-}
-
-export interface CleaningPlan {
-    excludeRows: CleaningRule[];
+export interface DataPreparationPlan {
+    explanation: string;
+    jsFunctionBody: string | null;
 }
 
 // For Session History
