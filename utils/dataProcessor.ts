@@ -22,7 +22,7 @@ const parseNumericValue = (value: any): number | null => {
     return isNaN(num) ? null : num;
 };
 
-export const applyTopNWithOthers = (data: CsvData, groupByKey: string, valueKey: string, topN: number): CsvData => {
+export const applyTopNWithOthers = (data: CsvRow[], groupByKey: string, valueKey: string, topN: number): CsvRow[] => {
     if (data.length <= topN) {
         return data;
     }
@@ -45,13 +45,14 @@ export const applyTopNWithOthers = (data: CsvData, groupByKey: string, valueKey:
 };
 
 
+// Fix: Changed return type to Promise<CsvData> to include filename along with parsed data.
 export const processCsv = (file: File): Promise<CsvData> => {
     return new Promise((resolve, reject) => {
         Papa.parse(file, {
             header: true,
             skipEmptyLines: true,
             worker: true,
-            complete: (results: { data: CsvData }) => {
+            complete: (results: { data: CsvRow[] }) => {
                 const sanitizedData = results.data.map(row => {
                     const newRow: CsvRow = {};
                     for (const key in row) {
@@ -59,7 +60,8 @@ export const processCsv = (file: File): Promise<CsvData> => {
                     }
                     return newRow;
                 });
-                resolve(sanitizedData);
+                // Fix: Resolve with a CsvData object instead of just the array of rows.
+                resolve({ fileName: file.name, data: sanitizedData });
             },
             error: (error: Error) => {
                 reject(error);
@@ -68,7 +70,7 @@ export const processCsv = (file: File): Promise<CsvData> => {
     });
 };
 
-export const profileData = (data: CsvData): ColumnProfile[] => {
+export const profileData = (data: CsvRow[]): ColumnProfile[] => {
     if (!data || data.length === 0) return [];
     const headers = Object.keys(data[0]);
     const profiles: ColumnProfile[] = [];
@@ -110,21 +112,24 @@ export const profileData = (data: CsvData): ColumnProfile[] => {
     return profiles;
 };
 
-export const executeJavaScriptDataTransform = (data: CsvData, jsFunctionBody: string): CsvData => {
+export const executeJavaScriptDataTransform = (data: CsvRow[], jsFunctionBody: string): CsvRow[] => {
     try {
         const transformFunction = new Function('data', jsFunctionBody);
         const result = transformFunction(data);
         
         if (!Array.isArray(result)) {
+            console.error("AI-generated transform function returned a non-array value. This is likely due to a missing 'return' statement in the generated code.", {
+                returnedValue: result,
+                generatedCode: jsFunctionBody
+            });
             throw new Error('AI-generated transform function did not return an array.');
         }
         
-        // Basic check to ensure it still looks like CsvData
         if (result.length > 0 && typeof result[0] !== 'object') {
              throw new Error('AI-generated transform function did not return an array of objects.');
         }
 
-        return result as CsvData;
+        return result as CsvRow[];
     } catch (error) {
         console.error("Error executing AI-generated JavaScript:", error);
         throw new Error(`AI-generated data transformation failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -132,14 +137,14 @@ export const executeJavaScriptDataTransform = (data: CsvData, jsFunctionBody: st
 }
 
 
-export const executePlan = (data: CsvData, plan: AnalysisPlan): CsvData => {
+export const executePlan = (data: CsvData, plan: AnalysisPlan): CsvRow[] => {
     const { groupByColumn, valueColumn, aggregation } = plan;
 
     const groups: { [key: string]: number[] } = {};
 
-    data.forEach(row => {
+    data.data.forEach(row => {
         const groupKey = String(row[groupByColumn]);
-        if (groupKey === 'undefined' || groupKey === 'null') return; // Skip rows with no group key
+        if (groupKey === 'undefined' || groupKey === 'null') return;
         
         if (!groups[groupKey]) {
             groups[groupKey] = [];
@@ -151,12 +156,11 @@ export const executePlan = (data: CsvData, plan: AnalysisPlan): CsvData => {
                 groups[groupKey].push(value);
             }
         } else if (aggregation === 'count') {
-            // For count, just push a placeholder
             groups[groupKey].push(1);
         }
     });
 
-    const aggregatedResult: CsvData = [];
+    const aggregatedResult: CsvRow[] = [];
 
     for (const key in groups) {
         const values = groups[key];
@@ -185,7 +189,6 @@ export const executePlan = (data: CsvData, plan: AnalysisPlan): CsvData => {
         });
     }
     
-    // Sort by value descending
     const finalValueColumn = valueColumn || 'count';
     return aggregatedResult.sort((a, b) => (Number(b[finalValueColumn]) || 0) - (Number(a[finalValueColumn]) || 0));
 };

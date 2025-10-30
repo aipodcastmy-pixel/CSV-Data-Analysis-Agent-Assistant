@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { ProgressMessage, ChatMessage } from '../types';
 
@@ -6,18 +7,10 @@ interface ChatPanelProps {
     chatHistory: ChatMessage[];
     isBusy: boolean;
     onSendMessage: (message: string) => void;
-    useCloudAI: boolean;
-    toggleCloudAI: () => void;
+    isApiKeySet: boolean;
     onToggleVisibility: () => void;
     onOpenSettings: () => void;
 }
-
-const Toggle: React.FC<{ checked: boolean, onChange: () => void }> = ({ checked, onChange }) => (
-    <label className="relative inline-flex items-center cursor-pointer">
-        <input type="checkbox" checked={checked} onChange={onChange} className="sr-only peer" />
-        <div className="w-11 h-6 bg-gray-600 rounded-full peer peer-focus:ring-2 peer-focus:ring-blue-800 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-    </label>
-);
 
 const HideIcon: React.FC = () => (
     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -33,7 +26,7 @@ const SettingsIcon: React.FC = () => (
 );
 
 
-export const ChatPanel: React.FC<ChatPanelProps> = ({ progressMessages, chatHistory, isBusy, onSendMessage, useCloudAI, toggleCloudAI, onToggleVisibility, onOpenSettings }) => {
+export const ChatPanel: React.FC<ChatPanelProps> = ({ progressMessages, chatHistory, isBusy, onSendMessage, isApiKeySet, onToggleVisibility, onOpenSettings }) => {
     const [input, setInput] = useState('');
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -69,8 +62,8 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ progressMessages, chatHist
             // AI message
             return (
                 <div key={`chat-${index}`} className="flex">
-                    <div className="bg-gray-700 rounded-lg px-3 py-2 max-w-xs lg:max-w-md">
-                         <p className="text-sm text-gray-200">{msg.text}</p>
+                    <div className={`rounded-lg px-3 py-2 max-w-xs lg:max-w-md ${msg.isError ? 'bg-red-900/50' : 'bg-gray-700'}`}>
+                         <p className={`text-sm ${msg.isError ? 'text-red-300' : 'text-gray-200'}`}>{msg.text}</p>
                     </div>
                 </div>
             );
@@ -90,8 +83,6 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ progressMessages, chatHist
             <div className="p-4 border-b border-gray-700 flex justify-between items-center">
                 <h2 className="text-xl font-semibold text-white">Assistant</h2>
                  <div className="flex items-center space-x-3">
-                    <span className="text-sm text-gray-400 hidden lg:inline">Cloud AI</span>
-                    <Toggle checked={useCloudAI} onChange={toggleCloudAI} />
                     <button
                         onClick={onOpenSettings}
                         className="p-1 text-gray-400 rounded-full hover:bg-gray-700 hover:text-white transition-colors"
@@ -130,8 +121,8 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ progressMessages, chatHist
                         type="text"
                         value={input}
                         onChange={(e) => setInput(e.target.value)}
-                        placeholder={useCloudAI ? "Ask for a new analysis..." : "Enable Cloud AI to chat"}
-                        disabled={isBusy || !useCloudAI}
+                        placeholder={isApiKeySet ? "Ask for a new analysis..." : "Set API Key in settings to chat"}
+                        disabled={isBusy || !isApiKeySet}
                         className="w-full bg-gray-700 border border-gray-600 rounded-md py-2 px-4 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
                     />
                 </form>

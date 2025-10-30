@@ -5,10 +5,10 @@ import { ChatPanel } from './components/ChatPanel';
 import { FileUpload } from './components/FileUpload';
 import { SettingsModal } from './components/SettingsModal';
 import { HistoryPanel } from './components/HistoryPanel';
-import { AnalysisCardData, ChatMessage, ProgressMessage, CsvData, AnalysisPlan, AppState, ColumnProfile, AiChatResponse, ChartType, DomAction, Settings, Report, ReportListItem } from './types';
+import { AnalysisCardData, ChatMessage, ProgressMessage, CsvData, AnalysisPlan, AppState, ColumnProfile, AiAction, CardContext, ChartType, DomAction, Settings, Report, ReportListItem } from './types';
 import { processCsv, profileData, executePlan, executeJavaScriptDataTransform } from './utils/dataProcessor';
 import { generateAnalysisPlans, generateSummary, generateFinalSummary, generateChatResponse, generateDataPreparationPlan } from './services/geminiService';
-import { getReportsList, saveReport, getReport, deleteReport, getSettings, saveSettings } from './storageService';
+import { getReportsList, saveReport, getReport, deleteReport, getSettings, saveSettings, archiveCurrentSession, CURRENT_SESSION_KEY } from './storageService';
 
 const MIN_ASIDE_WIDTH = 320;
 const MAX_ASIDE_WIDTH = 800;
@@ -25,11 +25,9 @@ const HistoryIcon: React.FC = () => (
     </svg>
 );
 
-
 const App: React.FC = () => {
     const [appState, setAppState] = useState<AppState>({
         isBusy: false,
-        useCloudAI: true,
         progressMessages: [],
         csvData: null,
         columnProfiles: [],
@@ -44,30 +42,49 @@ const App: React.FC = () => {
     const [isHistoryPanelOpen, setIsHistoryPanelOpen] = useState(false);
     const [settings, setSettings] = useState<Settings>(() => getSettings());
     const [reportsList, setReportsList] = useState<ReportListItem[]>([]);
-    const [currentReportId, setCurrentReportId] = useState<string | null>(null);
 
     const isResizingRef = useRef(false);
-    const isMounted = useRef(true);
+    const isMounted = useRef(false);
 
+    // Load current session or reports list on initial mount
     useEffect(() => {
         isMounted.current = true;
-        loadReportsList();
+        const loadInitialData = async () => {
+            const currentSession = await getReport(CURRENT_SESSION_KEY);
+            if (isMounted.current) {
+                if (currentSession) {
+                    setAppState(currentSession.appState);
+                }
+                // Always load the history list on start
+                loadReportsList();
+            }
+        };
+        loadInitialData();
         return () => { isMounted.current = false; };
     }, []);
 
+    // Debounced saving of the current session state
     useEffect(() => {
+        if (!isMounted.current) return;
+        
         const saveCurrentState = async () => {
-            if (currentReportId && isMounted.current) {
-                const currentReport = await getReport(currentReportId);
-                if (currentReport) {
-                    const updatedReport = { ...currentReport, appState: appState, updatedAt: new Date() };
-                    await saveReport(updatedReport);
-                }
+            // Only save if there's actual data to prevent saving empty sessions
+            if (appState.csvData && appState.csvData.data.length > 0) {
+                 const existingReport = await getReport(CURRENT_SESSION_KEY);
+                 const currentReport: Report = {
+                    id: CURRENT_SESSION_KEY,
+                    filename: appState.csvData.fileName || 'current_session',
+                    // Preserve the original creation date on subsequent saves
+                    createdAt: existingReport?.createdAt || new Date(),
+                    updatedAt: new Date(),
+                    appState: appState,
+                };
+                await saveReport(currentReport);
             }
         };
-        const debounceSave = setTimeout(saveCurrentState, 500); // Debounce saving
+        const debounceSave = setTimeout(saveCurrentState, 1000);
         return () => clearTimeout(debounceSave);
-    }, [appState, currentReportId]);
+    }, [appState]);
 
     const loadReportsList = async () => {
         const list = await getReportsList();
@@ -123,11 +140,8 @@ const App: React.FC = () => {
                     continue;
                 }
                 
-                let summary = 'AI summary disabled or failed.';
-                if (appState.useCloudAI) {
-                    addProgress(`AI is summarizing: ${plan.title}...`);
-                    summary = await generateSummary(plan.title, aggregatedData, settings);
-                }
+                addProgress(`AI is summarizing: ${plan.title}...`);
+                const summary = await generateSummary(plan.title, aggregatedData, settings);
 
                 const newCard: AnalysisCardData = {
                     id: `card-${Date.now()}-${Math.random()}`,
@@ -136,11 +150,12 @@ const App: React.FC = () => {
                     summary: summary,
                     displayChartType: plan.chartType,
                     isDataVisible: false,
-                    topN: null
+                    topN: null,
+                    hideOthers: false,
                 };
                 newCards.push(newCard);
                 if (isMounted.current) {
-                    setAppState(prev => ({ ...prev, analysisCards: [...prev.analysisCards, newCard] }));
+                    setAppState(prev => ({ ...prev, analysisCards: isChatRequest ? [...prev.analysisCards, newCard] : newCards }));
                 }
                 addProgress(`Saved as View #${newCard.id.slice(-6)}`);
             } catch (error) {
@@ -150,7 +165,7 @@ const App: React.FC = () => {
             }
         }
 
-        if (newCards.length > 0 && !isChatRequest && appState.useCloudAI) {
+        if (newCards.length > 0 && !isChatRequest) {
             addProgress('AI is generating final summary...');
             const finalSummaryText = await generateFinalSummary(newCards, settings);
             if(isMounted.current) {
@@ -160,15 +175,18 @@ const App: React.FC = () => {
         }
 
         return newCards;
-    }, [addProgress, appState.useCloudAI, settings]);
+    }, [addProgress, settings]);
 
     const handleFileUpload = useCallback(async (file: File) => {
         if (!isMounted.current) return;
+        
+        await archiveCurrentSession();
+        await loadReportsList();
+
         const initialState: AppState = {
             isBusy: true,
-            useCloudAI: appState.useCloudAI,
             progressMessages: [],
-            csvData: null,
+            csvData: { fileName: file.name, data: [] },
             columnProfiles: [],
             analysisCards: [],
             chatHistory: [],
@@ -176,69 +194,55 @@ const App: React.FC = () => {
         };
         setAppState(initialState);
         
-        const newReport: Report = {
-            id: `report-${Date.now()}`,
-            filename: file.name,
-            createdAt: new Date(),
-            updatedAt: new Date(),
-            appState: initialState,
-        };
-        setCurrentReportId(newReport.id);
-        
         try {
             addProgress('Parsing CSV file...');
-            let rawData = await processCsv(file);
+            const parsedData = await processCsv(file);
             if (!isMounted.current) return;
-            addProgress(`Parsed ${rawData.length} rows.`);
+            addProgress(`Parsed ${parsedData.data.length} rows.`);
 
-            let dataForAnalysis = rawData;
+            let dataForAnalysis = parsedData;
             let profiles: ColumnProfile[];
 
-            if (appState.useCloudAI && settings.apiKey) {
+            if (settings.apiKey) {
                 addProgress('AI is analyzing data for cleaning and reshaping...');
-                const initialProfiles = profileData(rawData);
-                const prepPlan = await generateDataPreparationPlan(initialProfiles, rawData.slice(0, 20), settings);
+                const initialProfiles = profileData(dataForAnalysis.data);
+                const prepPlan = await generateDataPreparationPlan(initialProfiles, dataForAnalysis.data.slice(0, 20), settings);
                 
                 if (prepPlan.jsFunctionBody) {
                     addProgress(`AI Plan: ${prepPlan.explanation}`);
                     addProgress('Executing AI data transformation...');
-                    const originalRowCount = dataForAnalysis.length;
-                    dataForAnalysis = executeJavaScriptDataTransform(dataForAnalysis, prepPlan.jsFunctionBody);
-                    const newRowCount = dataForAnalysis.length;
+                    const originalRowCount = dataForAnalysis.data.length;
+                    dataForAnalysis.data = executeJavaScriptDataTransform(dataForAnalysis.data, prepPlan.jsFunctionBody);
+                    const newRowCount = dataForAnalysis.data.length;
                     addProgress(`Transformation complete. Row count changed from ${originalRowCount} to ${newRowCount}.`);
                 } else {
                      addProgress('AI found no necessary data transformations.');
                 }
                 
-                if (dataForAnalysis.length === 0) {
+                if (dataForAnalysis.data.length === 0) {
                     addProgress('The dataset is empty after AI transformation. Halting analysis.', 'error');
                     throw new Error('The dataset became empty after AI-driven cleaning or reshaping.');
                 }
 
                 addProgress('Profiling prepared data...');
-                profiles = profileData(dataForAnalysis);
+                profiles = profileData(dataForAnalysis.data);
                 addProgress('Profiling complete.');
-
 
                 if (!isMounted.current) return;
                 setAppState(prev => ({ ...prev, csvData: dataForAnalysis, columnProfiles: profiles }));
 
                 addProgress('AI is generating analysis plans...');
-                const plans = await generateAnalysisPlans(profiles, dataForAnalysis.slice(0, 5), settings);
+                const plans = await generateAnalysisPlans(profiles, dataForAnalysis.data.slice(0, 5), settings);
                 addProgress(`AI proposed ${plans.length} plans.`);
                 await runAnalysisPipeline(plans, dataForAnalysis, false);
 
             } else {
-                 profiles = profileData(dataForAnalysis);
+                 addProgress('API Key not set. Please add your Gemini API Key in the settings.', 'error');
+                 setIsSettingsModalOpen(true);
+                 // Still profile and show data, just without AI analysis
+                 profiles = profileData(dataForAnalysis.data);
                  addProgress('Profiling data columns...');
                  addProgress('Data profiling complete.');
-                 
-                 if (appState.useCloudAI && !settings.apiKey) {
-                     addProgress('API Key not set. Please add your Gemini API Key in the settings.', 'error');
-                     setIsSettingsModalOpen(true);
-                 } else {
-                    addProgress('Cloud AI is disabled. Manual analysis via chat is available.');
-                 }
                  setAppState(prev => ({ ...prev, csvData: dataForAnalysis, columnProfiles: profiles }));
             }
 
@@ -250,10 +254,9 @@ const App: React.FC = () => {
             if (isMounted.current) {
                 setAppState(prev => ({ ...prev, isBusy: false }));
                 addProgress('Analysis complete. Ready for chat.');
-                await loadReportsList(); // Refresh history
             }
         }
-    }, [addProgress, runAnalysisPipeline, appState.useCloudAI, settings]);
+    }, [addProgress, runAnalysisPipeline, settings]);
 
     const executeDomAction = (action: DomAction) => {
         addProgress(`AI is performing action: ${action.toolName}...`);
@@ -313,10 +316,6 @@ const App: React.FC = () => {
             addProgress("Please upload a CSV file first.", "error");
             return;
         }
-        if (!appState.useCloudAI) {
-            addProgress('Cloud AI is disabled. Cannot process chat requests.', 'error');
-            return;
-        }
         if (!settings.apiKey) {
             addProgress('API Key not set. Please add your Gemini API Key in the settings.', 'error');
             setIsSettingsModalOpen(true);
@@ -329,12 +328,18 @@ const App: React.FC = () => {
 
         try {
             addProgress('AI is thinking...');
-            const response: AiChatResponse = await generateChatResponse(
+            
+            const cardContext: CardContext[] = appState.analysisCards.map(c => ({
+                id: c.id,
+                title: c.plan.title,
+                aggregatedDataSample: c.aggregatedData.slice(0, 10),
+            }));
+
+            const response = await generateChatResponse(
                 appState.columnProfiles,
-                appState.csvData.slice(0, 5),
                 appState.chatHistory,
                 message,
-                appState.analysisCards.map(c => ({id: c.id, title: c.plan.title})),
+                cardContext,
                 settings
             );
 
@@ -342,6 +347,7 @@ const App: React.FC = () => {
             const actions = response.actions;
 
             for (const action of actions) {
+                if (!isMounted.current) break;
                 switch (action.responseType) {
                     case 'text_response':
                         if (action.text && isMounted.current) {
@@ -350,7 +356,7 @@ const App: React.FC = () => {
                         }
                         break;
                     case 'plan_creation':
-                        if (action.plan) {
+                        if (action.plan && appState.csvData) {
                             await runAnalysisPipeline([action.plan], appState.csvData, true);
                         }
                         break;
@@ -364,7 +370,7 @@ const App: React.FC = () => {
                 }
 
                 if (actions.length > 1) {
-                    await sleep(750); // Delay for a more natural step-by-step feel
+                    await sleep(750);
                 }
             }
 
@@ -373,7 +379,12 @@ const App: React.FC = () => {
             const errorMessage = error instanceof Error ? error.message : String(error);
             addProgress(`Error processing chat: ${errorMessage}`, 'error');
             if (isMounted.current) {
-                const aiMessage: ChatMessage = { sender: 'ai', text: `Sorry, I had trouble with that request. Could you try rephrasing it?`, timestamp: new Date() };
+                const aiMessage: ChatMessage = { 
+                    sender: 'ai', 
+                    text: `Sorry, I had trouble with that request: ${errorMessage}. Could you try rephrasing it?`, 
+                    timestamp: new Date(),
+                    isError: true,
+                };
                 setAppState(prev => ({...prev, chatHistory: [...prev.chatHistory, aiMessage]}));
             }
         } finally {
@@ -381,11 +392,7 @@ const App: React.FC = () => {
                 setAppState(prev => ({ ...prev, isBusy: false }));
             }
         }
-    }, [appState.csvData, appState.columnProfiles, appState.useCloudAI, appState.chatHistory, appState.analysisCards, addProgress, runAnalysisPipeline, settings]);
-    
-    const toggleCloudAI = () => {
-        setAppState(prev => ({...prev, useCloudAI: !prev.useCloudAI}));
-    }
+    }, [appState, addProgress, runAnalysisPipeline, settings]);
     
     const handleChartTypeChange = (cardId: string, newType: ChartType) => {
         setAppState(prev => ({
@@ -408,29 +415,32 @@ const App: React.FC = () => {
         }));
     };
 
+    const handleHideOthersChange = (cardId: string, hide: boolean) => {
+        setAppState(prev => ({
+            ...prev,
+            analysisCards: prev.analysisCards.map(c => c.id === cardId ? {...c, hideOthers: hide} : c)
+        }));
+    };
+
     const handleLoadReport = async (id: string) => {
+        addProgress(`Loading report ${id}...`);
         const report = await getReport(id);
         if (report && isMounted.current) {
             setAppState(report.appState);
-            setCurrentReportId(id);
             setIsHistoryPanelOpen(false);
+            addProgress(`Report "${report.filename}" loaded successfully.`);
+        } else {
+            addProgress(`Failed to load report ${id}.`, 'error');
         }
     };
 
     const handleDeleteReport = async (id: string) => {
         await deleteReport(id);
-        if (currentReportId === id) {
-            setCurrentReportId(null);
-            setAppState({
-                isBusy: false, useCloudAI: appState.useCloudAI, progressMessages: [], csvData: null, 
-                columnProfiles: [], analysisCards: [], chatHistory: [], finalSummary: null
-            });
-        }
         await loadReportsList();
     };
 
 
-    const { isBusy, progressMessages, csvData, analysisCards, chatHistory, finalSummary, useCloudAI } = appState;
+    const { isBusy, progressMessages, csvData, analysisCards, chatHistory, finalSummary } = appState;
 
     return (
         <div className="flex flex-col md:flex-row h-screen bg-gray-900 text-gray-200 font-sans">
@@ -450,31 +460,33 @@ const App: React.FC = () => {
             <main className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8">
                 <header className="mb-6 flex justify-between items-center">
                     <div>
-                        <h1 className="text-3xl font-bold text-white">🧠 CSV Data Analysis AI Assistant</h1>
+                        <h1 className="text-3xl font-bold text-white">🧠 CSV Data Analysis Agent</h1>
                         <p className="text-gray-400 mt-1">Upload → Auto-Analyze → Visualize → Summarize → Chat</p>
                     </div>
-                    <button 
-                        onClick={() => setIsHistoryPanelOpen(true)}
-                        className="flex items-center space-x-2 px-3 py-2 bg-gray-700 text-gray-300 rounded-md hover:bg-gray-600 hover:text-white transition-colors"
-                        title="View analysis history"
-                    >
-                       <HistoryIcon />
-                       <span className="hidden sm:inline">History</span>
-                    </button>
+                     <div className="flex items-center space-x-2">
+                        <button 
+                            onClick={() => {loadReportsList(); setIsHistoryPanelOpen(true);}}
+                            className="flex items-center space-x-2 px-3 py-2 bg-gray-700 text-gray-300 rounded-md hover:bg-gray-600 hover:text-white transition-colors"
+                            title="View analysis history"
+                        >
+                           <HistoryIcon />
+                           <span className="hidden sm:inline">History</span>
+                        </button>
+                    </div>
                 </header>
-                {csvData ? (
+                {csvData && csvData.data.length > 0 ? (
                     <AnalysisPanel 
                         cards={analysisCards} 
                         finalSummary={finalSummary}
                         onChartTypeChange={handleChartTypeChange}
                         onToggleDataVisibility={handleToggleDataVisibility}
                         onTopNChange={handleTopNChange}
+                        onHideOthersChange={handleHideOthersChange}
                     />
                 ) : (
                     <FileUpload 
                         onFileUpload={handleFileUpload} 
                         isBusy={isBusy}
-                        useCloudAI={useCloudAI}
                         isApiKeySet={!!settings.apiKey}
                     />
                 )}
@@ -489,8 +501,7 @@ const App: React.FC = () => {
                             chatHistory={chatHistory}
                             isBusy={isBusy} 
                             onSendMessage={handleChatMessage} 
-                            useCloudAI={useCloudAI}
-                            toggleCloudAI={toggleCloudAI}
+                            isApiKeySet={!!settings.apiKey}
                             onToggleVisibility={() => setIsAsideVisible(false)}
                             onOpenSettings={() => setIsSettingsModalOpen(true)}
                         />

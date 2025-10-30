@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { AnalysisCardData, ChartType } from '../types';
 import { AnalysisCard } from './AnalysisCard';
@@ -10,9 +11,10 @@ interface AnalysisPanelProps {
     onChartTypeChange: (cardId: string, newType: ChartType) => void;
     onToggleDataVisibility: (cardId: string) => void;
     onTopNChange: (cardId: string, topN: number | null) => void;
+    onHideOthersChange: (cardId: string, hide: boolean) => void;
 }
 
-export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({ cards, finalSummary, onChartTypeChange, onToggleDataVisibility, onTopNChange }) => {
+export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({ cards, finalSummary, onChartTypeChange, onToggleDataVisibility, onTopNChange, onHideOthersChange }) => {
     if (cards.length === 0) {
         return (
             <div className="flex items-center justify-center h-64 border-2 border-dashed border-gray-600 rounded-lg">
@@ -32,6 +34,7 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({ cards, finalSummar
                         onChartTypeChange={onChartTypeChange}
                         onToggleDataVisibility={onToggleDataVisibility}
                         onTopNChange={onTopNChange}
+                        onHideOthersChange={onHideOthersChange}
                     />
                 ))}
             </div>

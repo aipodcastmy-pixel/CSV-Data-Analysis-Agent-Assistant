@@ -1,9 +1,11 @@
+
 import { openDB, DBSchema, IDBPDatabase } from 'idb';
 import { AppState, Settings, Report, ReportListItem } from './types';
 
 const DB_NAME = 'csv-ai-assistant-db';
 const REPORTS_STORE_NAME = 'reports';
 const SETTINGS_KEY = 'csv-ai-assistant-settings';
+export const CURRENT_SESSION_KEY = 'current_session';
 
 interface MyDB extends DBSchema {
   [REPORTS_STORE_NAME]: {
@@ -17,12 +19,8 @@ let dbPromise: Promise<IDBPDatabase<MyDB>>;
 
 const getDb = (): Promise<IDBPDatabase<MyDB>> => {
   if (!dbPromise) {
-    dbPromise = openDB<MyDB>(DB_NAME, 2, { // Version bumped to 2 for new index
+    dbPromise = openDB<MyDB>(DB_NAME, 2, {
       upgrade(db, oldVersion) {
-        if (oldVersion < 1) {
-            // Deprecated store, can be removed in a future version
-            db.createObjectStore('sessions');
-        }
         if (oldVersion < 2) {
             if (!db.objectStoreNames.contains(REPORTS_STORE_NAME)) {
                 const store = db.createObjectStore(REPORTS_STORE_NAME, { keyPath: 'id' });
@@ -49,7 +47,8 @@ export const getReport = async (id: string): Promise<Report | undefined> => {
   try {
     const db = await getDb();
     return await db.get(REPORTS_STORE_NAME, id);
-  } catch (error) {
+  } catch (error)
+    {
     console.error('Failed to get report from IndexedDB:', error);
     return undefined;
   }
@@ -59,8 +58,9 @@ export const getReportsList = async (): Promise<ReportListItem[]> => {
     try {
         const db = await getDb();
         const allReports = await db.getAllFromIndex(REPORTS_STORE_NAME, 'updatedAt');
-        // Sort descending (newest first) and map to lighter ListItem
         return allReports
+            // Filter out the "live" session from the history list
+            .filter(report => report.id !== CURRENT_SESSION_KEY)
             .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
             .map(({ id, filename, createdAt, updatedAt }) => ({ id, filename, createdAt, updatedAt }));
     } catch (error) {
@@ -78,12 +78,33 @@ export const deleteReport = async (id: string): Promise<void> => {
     }
 };
 
+// Archives the current session by giving it a permanent ID.
+export const archiveCurrentSession = async (): Promise<void> => {
+    try {
+        const db = await getDb();
+        const currentSession = await db.get(REPORTS_STORE_NAME, CURRENT_SESSION_KEY);
+        if (currentSession) {
+            // Create a new ID for the archived report
+            const archiveId = `report-${currentSession.updatedAt.getTime()}`;
+            const archivedReport: Report = {
+                ...currentSession,
+                id: archiveId,
+            };
+            // Save it under the new ID and delete the old "current" one
+            await db.put(REPORTS_STORE_NAME, archivedReport);
+            await db.delete(REPORTS_STORE_NAME, CURRENT_SESSION_KEY);
+        }
+    } catch (error) {
+        console.error('Failed to archive current session:', error);
+    }
+};
+
 
 // Settings Management
 const defaultSettings: Settings = {
     apiKey: '',
-    model: 'gemini-2.5-flash',
-    language: 'English'
+    model: 'gemini-2.5-pro',
+    language: 'Mandarin'
 };
 
 export const saveSettings = (settings: Settings): void => {
@@ -98,7 +119,6 @@ export const getSettings = (): Settings => {
     try {
         const settingsJson = localStorage.getItem(SETTINGS_KEY);
         if (settingsJson) {
-            // Merge stored settings with defaults to ensure all keys are present
             return { ...defaultSettings, ...JSON.parse(settingsJson) };
         }
     } catch (error) {

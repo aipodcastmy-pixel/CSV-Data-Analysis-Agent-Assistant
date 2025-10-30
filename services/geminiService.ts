@@ -1,7 +1,27 @@
 
 
-import { GoogleGenAI, Type } from "@google/genai";
-import { AnalysisPlan, CsvData, ColumnProfile, AnalysisCardData, AiChatResponse, ChatMessage, Settings, DataPreparationPlan } from '../types';
+// Fix: Import GenerateContentResponse to correctly type the API response.
+import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
+import { AnalysisPlan, CsvData, ColumnProfile, AnalysisCardData, AiChatResponse, ChatMessage, Settings, DataPreparationPlan, CardContext } from '../types';
+
+// Helper for retrying API calls
+const withRetry = async <T>(fn: () => Promise<T>, retries = 2): Promise<T> => {
+    let lastError: Error | undefined;
+    for (let i = 0; i < retries; i++) {
+        try {
+            return await fn();
+        } catch (error) {
+            lastError = error as Error;
+            console.warn(`API call failed, retrying... (${i + 1}/${retries})`, error);
+            // Optional: add a small delay before retrying
+            if (i < retries - 1) {
+                await new Promise(res => setTimeout(res, 500));
+            }
+        }
+    }
+    throw lastError;
+};
+
 
 const planSchema = {
   type: Type.ARRAY,
@@ -33,7 +53,7 @@ const dataPreparationSchema = {
 
 export const generateDataPreparationPlan = async (
     columns: ColumnProfile[],
-    sampleData: CsvData,
+    sampleData: CsvData['data'],
     settings: Settings
 ): Promise<DataPreparationPlan> => {
     if (!settings.apiKey) return { explanation: "No transformation needed.", jsFunctionBody: null };
@@ -62,9 +82,11 @@ export const generateDataPreparationPlan = async (
         Your task:
         1.  Analyze the sample data and column names.
         2.  Determine if any cleaning or reshaping is required.
-        3.  If yes, write the body of a JavaScript function to perform the transformation. This function will receive one argument, \`data\`, which is the full dataset as an array of objects. It MUST return the transformed array.
+        3.  If yes, write the body of a JavaScript function to perform the transformation. This function receives one argument, \`data\`, which is the full dataset as an array of objects.
         4.  Provide a concise, user-facing 'explanation' of what the function will do.
         5.  If NO transformation is needed, return the explanation "No data transformation needed." and set 'jsFunctionBody' to null.
+
+        **CRITICAL REQUIREMENT**: The JavaScript code you generate **MUST** include a \`return\` statement as its final operation to return the transformed array. For example: \`return myCleanedData;\`. If you do not include a \`return\` statement, the application will fail.
 
         **Example 1: Cleaning needed**
         - Data has a "Grand Total" row.
@@ -74,35 +96,21 @@ export const generateDataPreparationPlan = async (
         **Example 2: Reshaping needed (crosstab)**
         - Columns: ['Product', 'Q1_Sales', 'Q2_Sales']
         - Explanation: "Reshaped the data from a wide (crosstab) format to a long format for analysis."
-        - jsFunctionBody: \`
-            const reshapedData = [];
-            const indexColumns = ['Product'];
-            const valueColumns = ['Q1_Sales', 'Q2_Sales'];
-            data.forEach(row => {
-                const baseObject = {};
-                indexColumns.forEach(col => { baseObject[col] = row[col]; });
-                valueColumns.forEach(valueCol => {
-                    const newRow = { ...baseObject };
-                    newRow['Quarter'] = valueCol;
-                    newRow['Sales'] = row[valueCol];
-                    reshapedData.push(newRow);
-                });
-            });
-            return reshapedData;
-        \`
+        - jsFunctionBody: "const reshapedData = [];\\ndata.forEach(row => {\\n    const valueColumns = ['Q1_Sales', 'Q2_Sales'];\\n    valueColumns.forEach(valueCol => {\\n        const newRow = {\\n            'Product': row['Product'],\\n            'Quarter': valueCol,\\n            'Sales': row[valueCol]\\n        };\\n        reshapedData.push(newRow);\\n    });\\n});\\nreturn reshapedData;"
 
         Your response must be a valid JSON object adhering to the provided schema. The 'jsFunctionBody' should be a single-line JSON string (use \\n for newlines if needed).
     `;
 
     try {
-        const response = await ai.models.generateContent({
+        // Fix: Explicitly type the response to avoid 'unknown' type on .text property.
+        const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
             model: settings.model,
             contents: prompt,
             config: {
                 responseMimeType: 'application/json',
                 responseSchema: dataPreparationSchema,
             },
-        });
+        }));
         
         const jsonStr = response.text.trim();
         return JSON.parse(jsonStr) as DataPreparationPlan;
@@ -115,7 +123,7 @@ export const generateDataPreparationPlan = async (
 
 export const generateAnalysisPlans = async (
     columns: ColumnProfile[], 
-    sampleData: CsvData,
+    sampleData: CsvData['data'],
     settings: Settings,
     userPrompt?: string,
     numPlans: number = 4
@@ -155,14 +163,15 @@ export const generateAnalysisPlans = async (
     `;
 
     try {
-        const response = await ai.models.generateContent({
+        // Fix: Explicitly type the response to avoid 'unknown' type on .text property.
+        const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
             model: settings.model,
             contents: prompt,
             config: {
                 responseMimeType: 'application/json',
                 responseSchema: planSchema,
             },
-        });
+        }));
 
         const jsonStr = response.text.trim();
         const plans = JSON.parse(jsonStr);
@@ -177,7 +186,7 @@ export const generateAnalysisPlans = async (
     }
 };
 
-export const generateSummary = async (title: string, data: CsvData, settings: Settings): Promise<string> => {
+export const generateSummary = async (title: string, data: CsvData['data'], settings: Settings): Promise<string> => {
      if (!settings.apiKey) return 'AI Summaries are disabled. No API Key provided.';
     
     const ai = new GoogleGenAI({ apiKey: settings.apiKey });
@@ -202,10 +211,11 @@ export const generateSummary = async (title: string, data: CsvData, settings: Se
     `;
 
     try {
-        const response = await ai.models.generateContent({
+        // Fix: Explicitly type the response to avoid 'unknown' type on .text property.
+        const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
             model: settings.model,
             contents: prompt,
-        });
+        }));
         return response.text;
     } catch (error) {
         console.error("Error generating summary:", error);
@@ -237,10 +247,11 @@ export const generateFinalSummary = async (cards: AnalysisCardData[], settings: 
     `;
 
     try {
-        const response = await ai.models.generateContent({
+        // Fix: Explicitly type the response to avoid 'unknown' type on .text property.
+        const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
             model: settings.model === 'gemini-2.5-pro' ? 'gemini-2.5-pro' : 'gemini-2.5-flash',
             contents: prompt,
-        });
+        }));
         return response.text;
     } catch (error) {
         console.error("Error generating final summary:", error);
@@ -306,10 +317,9 @@ const multiActionChatResponseSchema = {
 
 export const generateChatResponse = async (
     columns: ColumnProfile[],
-    sampleData: CsvData,
     chatHistory: ChatMessage[],
     userPrompt: string,
-    existingCards: { id: string, title: string }[],
+    cardContext: CardContext[],
     settings: Settings
 ): Promise<AiChatResponse> => {
     if (!settings.apiKey) {
@@ -325,12 +335,14 @@ export const generateChatResponse = async (
     const prompt = `
         You are a helpful and conversational data analysis assistant. Your task is to respond to the user by breaking down their request into a sequence of actions. Your responses should be in ${settings.language}.
 
+        Your entire knowledge base consists of the user's data and the analysis cards currently on the screen.
+
         You have access to a dataset with:
         - Categorical columns: ${categoricalCols.join(', ')}
         - Numerical columns: ${numericalCols.join(', ')}
 
-        The following analysis cards are currently displayed on the screen:
-        ${existingCards.length > 0 ? JSON.stringify(existingCards) : "No cards yet."}
+        The following analysis cards are currently displayed on the screen. Each card has an ID, a title, and a sample of its aggregated data. Use this data sample to answer questions about the card's content.
+        ${cardContext.length > 0 ? JSON.stringify(cardContext, null, 2) : "No cards yet."}
 
         Conversation history:
         ${history}
@@ -338,7 +350,7 @@ export const generateChatResponse = async (
         The user's latest message is: "${userPrompt}"
 
         Your task is to respond by creating a sequence of one or more actions. You have three action types:
-        1.  **text_response**: For general conversation, questions, or comments.
+        1.  **text_response**: For general conversation, questions, or comments. Use this to explain a chart's data.
         2.  **plan_creation**: If the user asks for a NEW chart or data aggregation.
         3.  **dom_action**: If the user wants to INTERACT with an EXISTING card (e.g., "highlight," "show data for," "change to pie chart").
 
@@ -349,27 +361,26 @@ export const generateChatResponse = async (
 
         Decision-making process:
         - THINK STEP-BY-STEP. A single user request might require multiple actions.
-        - If the user asks to see something and then explain it, this is a multi-step action.
         - **Multi-step example**: If user says "Highlight the monthly sales card and explain the trend", you must return THREE actions in the array:
             1. A 'text_response' action that says something like "Certainly, I'll highlight that card for you."
             2. A 'dom_action' to 'highlightCard' for the correct cardId.
-            3. A 'text_response' action with the explanation of the trend.
+            3. A 'text_response' action with the explanation of the trend (which you derive from the aggregatedDataSample for that card).
         - Always prefer to be conversational. Use 'text_response' actions to acknowledge the user and explain what you are doing.
-        - If the user asks for a new analysis, use a 'text_response' to confirm, then a 'plan_creation' action.
-        - If the user is just chatting (e.g., "thank you"), use a single 'text_response'.
+        - If the user asks a question about a card's data, use the provided 'aggregatedDataSample' to find the answer and respond with a 'text_response'.
 
         Your output MUST be a single JSON object with an "actions" key containing an array of action objects.
     `;
 
     try {
-        const response = await ai.models.generateContent({
+        // Fix: Explicitly type the response to avoid 'unknown' type on .text property.
+        const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
             model: settings.model,
             contents: prompt,
             config: {
                 responseMimeType: 'application/json',
                 responseSchema: multiActionChatResponseSchema,
             },
-        });
+        }));
 
         const jsonStr = response.text.trim();
         const chatResponse = JSON.parse(jsonStr) as AiChatResponse;
@@ -380,6 +391,6 @@ export const generateChatResponse = async (
         return chatResponse;
     } catch (error) {
         console.error("Error generating chat response:", error);
-        throw new Error("Failed to get a valid response from the AI.");
+        throw new Error(`Failed to get a valid response from the AI. ${error instanceof Error ? error.message : ''}`);
     }
 };

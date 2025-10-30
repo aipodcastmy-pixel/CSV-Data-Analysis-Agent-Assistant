@@ -1,3 +1,4 @@
+
 import React, { useRef, useState } from 'react';
 import { AnalysisCardData, ChartType } from '../types';
 import { ChartRenderer, ChartRendererHandle } from './ChartRenderer';
@@ -11,6 +12,7 @@ interface AnalysisCardProps {
     onChartTypeChange: (cardId: string, newType: ChartType) => void;
     onToggleDataVisibility: (cardId: string) => void;
     onTopNChange: (cardId: string, topN: number | null) => void;
+    onHideOthersChange: (cardId: string, hide: boolean) => void;
 }
 
 const ExportIcon: React.FC = () => (
@@ -33,8 +35,8 @@ const ClearSelectionIcon: React.FC = () => (
 );
 
 
-export const AnalysisCard: React.FC<AnalysisCardProps> = ({ cardData, onChartTypeChange, onToggleDataVisibility, onTopNChange }) => {
-    const { id, plan, aggregatedData, summary, displayChartType, isDataVisible, topN } = cardData;
+export const AnalysisCard: React.FC<AnalysisCardProps> = ({ cardData, onChartTypeChange, onToggleDataVisibility, onTopNChange, onHideOthersChange }) => {
+    const { id, plan, aggregatedData, summary, displayChartType, isDataVisible, topN, hideOthers } = cardData;
     const cardRef = useRef<HTMLDivElement>(null);
     const chartRendererRef = useRef<ChartRendererHandle>(null);
 
@@ -48,7 +50,12 @@ export const AnalysisCard: React.FC<AnalysisCardProps> = ({ cardData, onChartTyp
     const mandarinSummary = summaryParts[1]?.trim();
 
     const valueKey = plan.valueColumn || 'count';
-    const dataForDisplay = topN ? applyTopNWithOthers(aggregatedData, plan.groupByColumn, valueKey, topN) : aggregatedData;
+    let dataForDisplay = topN ? applyTopNWithOthers(aggregatedData, plan.groupByColumn, valueKey, topN) : aggregatedData;
+    
+    if (topN && hideOthers) {
+        dataForDisplay = dataForDisplay.filter(row => row[plan.groupByColumn] !== 'Others');
+    }
+
 
     const handleExport = async (format: 'png' | 'csv' | 'html') => {
         if (!cardRef.current) return;
@@ -165,6 +172,20 @@ export const AnalysisCard: React.FC<AnalysisCardProps> = ({ cardData, onChartTyp
                             <option value="10">Top 10</option>
                             <option value="20">Top 20</option>
                         </select>
+                         {topN && (
+                            <div className="mt-2">
+                                <label htmlFor={`hide-others-${id}`} className="flex items-center space-x-2 text-xs text-gray-400">
+                                    <input
+                                        type="checkbox"
+                                        id={`hide-others-${id}`}
+                                        checked={hideOthers}
+                                        onChange={(e) => onHideOthersChange(id, e.target.checked)}
+                                        className="bg-gray-700 border-gray-600 rounded focus:ring-blue-500 text-blue-500"
+                                    />
+                                    <span>Hide "Others"</span>
+                                </label>
+                            </div>
+                        )}
                     </div>
                 )}
             </div>
