@@ -10,6 +10,7 @@ interface ChatPanelProps {
     isApiKeySet: boolean;
     onToggleVisibility: () => void;
     onOpenSettings: () => void;
+    onShowCard: (cardId: string) => void;
 }
 
 const HideIcon: React.FC = () => (
@@ -26,7 +27,7 @@ const SettingsIcon: React.FC = () => (
 );
 
 
-export const ChatPanel: React.FC<ChatPanelProps> = ({ progressMessages, chatHistory, isBusy, onSendMessage, isApiKeySet, onToggleVisibility, onOpenSettings }) => {
+export const ChatPanel: React.FC<ChatPanelProps> = ({ progressMessages, chatHistory, isBusy, onSendMessage, isApiKeySet, onToggleVisibility, onOpenSettings, onShowCard }) => {
     const [input, setInput] = useState('');
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -64,6 +65,14 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ progressMessages, chatHist
                 <div key={`chat-${index}`} className="flex">
                     <div className={`rounded-lg px-3 py-2 max-w-xs lg:max-w-md ${msg.isError ? 'bg-red-900/50' : 'bg-gray-700'}`}>
                          <p className={`text-sm ${msg.isError ? 'text-red-300' : 'text-gray-200'}`}>{msg.text}</p>
+                         {msg.cardId && !msg.isError && (
+                            <button 
+                                onClick={() => onShowCard(msg.cardId!)}
+                                className="mt-2 text-xs bg-blue-600/50 text-blue-200 px-2 py-1 rounded-md hover:bg-blue-600 transition-colors w-full text-left font-medium"
+                            >
+                                → Show Related Card
+                            </button>
+                         )}
                     </div>
                 </div>
             );

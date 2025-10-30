@@ -21,7 +21,8 @@ This advanced tool allows users to have a conversation with their data, asking f
     *   Zoom and pan on charts to explore dense data.
     *   Click on data points to see details and multi-select for comparison.
 *   **Conversational AI Chat**: Engage in a dialogue with the AI. Ask for new analyses, inquire about data points, or request summaries. The AI maintains conversation context.
-*   **🤖 Insightful "Point and Talk" Interaction**: The AI acts as an expert analyst, providing synthesized insights and business interpretations, not just descriptions. It can perform a sequence of actions to guide you, creating a more natural conversational flow. For example, it can first highlight a relevant chart and then follow up with a detailed text explanation in the chat, effectively 'pointing' at what it's discussing and explaining its business impact. It can:
+*   **🤖 Insightful "Point and Talk" Interaction**: The AI acts as an expert analyst, providing synthesized insights and business interpretations, not just descriptions. It can perform a sequence of actions to guide you, creating a more natural conversational flow.
+    *   **Interactive Guidance**: The AI can highlight a relevant chart and then follow up with a detailed text explanation in the chat. When it discusses a specific chart, a **"Show Related Card"** button appears with its message, allowing you to instantly jump to the visualization it's referencing.
     *   **Highlight Cards**: Asks the AI to "highlight the card showing sales by region" and it will scroll to it and add a visual highlight.
     *   **Change Visualizations**: Tell the AI to "change the monthly users chart to a line graph".
     *   **Show Raw Data**: Ask to "show me the data for the top products card".
@@ -52,7 +53,7 @@ Your settings are saved securely in your browser's local storage and are never t
 5.  **Chat with the Assistant**:
     *   Open the side panel to chat. Ask for a new view (e.g., "Count of products by category").
     *   Ask a question about the data (e.g., "What's the average order value in the sales performance chart?").
-    *   Ask the AI to guide you (e.g., "Highlight the most important chart and explain it to me").
+    *   Ask the AI to guide you (e.g., "Highlight the most important chart and explain it to me"). Click the "Show Related Card" button on the AI's response to navigate directly to the chart it is discussing.
 6.  **Manage History**: Click the "History" button in the main header to see all your past reports. You can load a previous session to continue your work or delete old reports.
 7.  **Export Your Findings**: Use the export menu on any card to save your work as a PNG, CSV, or a full HTML report.
 

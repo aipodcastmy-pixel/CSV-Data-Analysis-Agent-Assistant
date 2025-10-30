@@ -36,6 +36,7 @@ export interface AnalysisCardData {
     isDataVisible: boolean;
     topN: number | null; // For Top N filtering
     hideOthers: boolean; // For hiding the 'Others' category in Top N
+    disableAnimation?: boolean; // To control loading animations
 }
 
 export interface ProgressMessage {
@@ -49,6 +50,7 @@ export interface ChatMessage {
     text: string;
     timestamp: Date;
     isError?: boolean; // To style error messages in the chat
+    cardId?: string; // ID of the card this message refers to
 }
 
 export interface Settings {
@@ -76,6 +78,7 @@ export interface AiAction {
   responseType: 'plan_creation' | 'text_response' | 'dom_action';
   plan?: AnalysisPlan;
   text?: string;
+  cardId?: string; // For text_response, the ID of the card being discussed
   domAction?: DomAction;
 }
 

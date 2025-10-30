@@ -152,7 +152,7 @@ export const generateAnalysisPlans = async (
     sampleData: CsvData['data'],
     settings: Settings,
     userPrompt?: string,
-    numPlans: number = 4
+    numPlans: number = 8
 ): Promise<AnalysisPlan[]> => {
     if (!settings.apiKey) throw new Error("API Key not provided.");
     
@@ -162,7 +162,7 @@ export const generateAnalysisPlans = async (
     const numericalCols = columns.filter(c => c.type === 'numerical').map(c => c.name);
 
     const prompt = `
-        You are an expert data analyst. Your task is to generate insightful analysis plans for a given dataset.
+        You are a senior business intelligence analyst. Your task is to generate insightful analysis plans for a given dataset.
         
         Dataset columns:
         - Categorical: ${categoricalCols.join(', ')}
@@ -173,8 +173,8 @@ export const generateAnalysisPlans = async (
         
         ${userPrompt ? `Based on the user's request: "${userPrompt}"` : ''}
 
-        Please generate ${numPlans} diverse and meaningful analysis plan(s). 
-        Focus on creating standard business intelligence visualizations. For example, summing sales by region, counting customers by month, or averaging scores by team.
+        Please generate up to ${numPlans} diverse and meaningful analysis plan(s). 
+        Focus on creating high-value visualizations that would answer common business questions like 'What are our top revenue sources?', 'Where are the biggest costs?', 'What are the performance trends over time?', or 'How are items distributed across categories?'.
         
         For each plan, choose the most appropriate chartType ('bar', 'line', 'pie'). 
         - Use 'line' for time series trends (e.g., grouping by date/month/year).
@@ -310,6 +310,7 @@ const multiActionChatResponseSchema = {
                 properties: {
                     responseType: { type: Type.STRING, enum: ['text_response', 'plan_creation', 'dom_action'] },
                     text: { type: Type.STRING, description: "A conversational text response to the user. Required for 'text_response'." },
+                    cardId: { type: Type.STRING, description: "Optional. The ID of the card this text response refers to. Used to link text to a specific chart." },
                     plan: {
                         ...singlePlanSchema,
                         description: "Analysis plan object. Required for 'plan_creation'."
@@ -382,7 +383,7 @@ export const generateChatResponse = async (
         The user's latest message is: "${userPrompt}"
 
         Your task is to respond by creating a sequence of one or more actions. You have three action types:
-        1.  **text_response**: For general conversation, questions, or comments. Use this to explain a chart's data.
+        1.  **text_response**: For general conversation, questions, or comments. Use this to explain a chart's data. If your text response is explaining or referencing a specific card, you MUST include its 'cardId'.
         2.  **plan_creation**: If the user asks for a NEW chart or data aggregation.
         3.  **dom_action**: If the user wants to INTERACT with an EXISTING card (e.g., "highlight," "show data for," "change to pie chart").
 
@@ -396,9 +397,9 @@ export const generateChatResponse = async (
         - **Multi-step example**: If user says "Highlight the monthly sales card and explain the trend", you must return THREE actions in the array:
             1. A 'text_response' action that says something like "Certainly, I'll highlight that card for you."
             2. A 'dom_action' to 'highlightCard' for the correct cardId.
-            3. A 'text_response' action with the explanation of the trend (which you derive from the aggregatedDataSample for that card).
+            3. A 'text_response' action with the explanation of the trend (which you derive from the aggregatedDataSample for that card), which MUST include the 'cardId' of the monthly sales card.
         - Always prefer to be conversational. Use 'text_response' actions to acknowledge the user and explain what you are doing.
-        - If the user asks a question about a card's data, use the provided 'aggregatedDataSample' to find the answer and respond with a 'text_response' that follows your Analytical Principles.
+        - If the user asks a question about a card's data, use the provided 'aggregatedDataSample' to find the answer and respond with a 'text_response' that follows your Analytical Principles and includes the relevant 'cardId'.
 
         Your output MUST be a single JSON object with an "actions" key containing an array of action objects.
     `;

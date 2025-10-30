@@ -36,7 +36,7 @@ const ClearSelectionIcon: React.FC = () => (
 
 
 export const AnalysisCard: React.FC<AnalysisCardProps> = ({ cardData, onChartTypeChange, onToggleDataVisibility, onTopNChange, onHideOthersChange }) => {
-    const { id, plan, aggregatedData, summary, displayChartType, isDataVisible, topN, hideOthers } = cardData;
+    const { id, plan, aggregatedData, summary, displayChartType, isDataVisible, topN, hideOthers, disableAnimation } = cardData;
     const cardRef = useRef<HTMLDivElement>(null);
     const chartRendererRef = useRef<ChartRendererHandle>(null);
 
@@ -141,6 +141,7 @@ export const AnalysisCard: React.FC<AnalysisCardProps> = ({ cardData, onChartTyp
                     selectedIndices={selectedIndices}
                     onElementClick={handleChartClick}
                     onZoomChange={setIsZoomed}
+                    disableAnimation={disableAnimation}
                 />
                  <div className="absolute top-1 right-1 flex items-center space-x-1">
                     {selectedIndices.length > 0 && (

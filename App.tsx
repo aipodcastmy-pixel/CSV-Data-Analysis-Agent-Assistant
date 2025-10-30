@@ -130,7 +130,7 @@ const App: React.FC = () => {
     }, []);
 
     const runAnalysisPipeline = useCallback(async (plans: AnalysisPlan[], data: CsvData, isChatRequest: boolean = false) => {
-        const newCards: AnalysisCardData[] = [];
+        let isFirstCardInPipeline = true;
         for (const plan of plans) {
             try {
                 addProgress(`Executing plan: ${plan.title}...`);
@@ -143,23 +143,24 @@ const App: React.FC = () => {
                 addProgress(`AI is summarizing: ${plan.title}...`);
                 const summary = await generateSummary(plan.title, aggregatedData, settings);
 
-                const newCard: AnalysisCardData = {
-                    id: `card-${Date.now()}-${Math.random()}`,
-                    plan: plan,
-                    aggregatedData: aggregatedData,
-                    summary: summary,
-                    displayChartType: plan.chartType,
-                    isDataVisible: false,
-                    topN: null,
-                    hideOthers: false,
-                };
-                newCards.push(newCard);
                 if (isMounted.current) {
-                    // FIX: Append new card to the existing array to preserve the state of previous cards.
-                    // Do not replace the entire array on each iteration.
-                    setAppState(prev => ({ ...prev, analysisCards: [...prev.analysisCards, newCard] }));
+                    setAppState(prev => {
+                        const newCard: AnalysisCardData = {
+                            id: `card-${Date.now()}-${Math.random()}`,
+                            plan: plan,
+                            aggregatedData: aggregatedData,
+                            summary: summary,
+                            displayChartType: plan.chartType,
+                            isDataVisible: false,
+                            topN: null,
+                            hideOthers: false,
+                            disableAnimation: isChatRequest || !isFirstCardInPipeline || prev.analysisCards.length > 0,
+                        };
+                        isFirstCardInPipeline = false; // Subsequent cards in this loop will not animate
+                        addProgress(`Saved as View #${newCard.id.slice(-6)}`);
+                        return { ...prev, analysisCards: [...prev.analysisCards, newCard] };
+                    });
                 }
-                addProgress(`Saved as View #${newCard.id.slice(-6)}`);
             } catch (error) {
                 console.error('Error executing plan:', plan.title, error);
                 const errorMessage = error instanceof Error ? error.message : String(error);
@@ -167,17 +168,14 @@ const App: React.FC = () => {
             }
         }
 
-        if (newCards.length > 0 && !isChatRequest) {
-            addProgress('AI is generating final summary...');
-            const finalSummaryText = await generateFinalSummary(newCards, settings);
+        if (!isChatRequest && isMounted.current) {
+            const finalSummaryText = await generateFinalSummary(appState.analysisCards, settings);
             if(isMounted.current) {
                 setAppState(prev => ({...prev, finalSummary: finalSummaryText}));
             }
             addProgress('Overall summary generated.');
         }
-
-        return newCards;
-    }, [addProgress, settings]);
+    }, [addProgress, settings, appState.analysisCards]);
 
     const handleFileUpload = useCallback(async (file: File) => {
         if (!isMounted.current) return;
@@ -376,7 +374,12 @@ const App: React.FC = () => {
                 switch (action.responseType) {
                     case 'text_response':
                         if (action.text && isMounted.current) {
-                            const aiMessage: ChatMessage = { sender: 'ai', text: action.text, timestamp: new Date() };
+                            const aiMessage: ChatMessage = { 
+                                sender: 'ai', 
+                                text: action.text, 
+                                timestamp: new Date(),
+                                cardId: action.cardId // Pass cardId to the message
+                            };
                             setAppState(prev => ({...prev, chatHistory: [...prev.chatHistory, aiMessage]}));
                         }
                         break;
@@ -463,6 +466,17 @@ const App: React.FC = () => {
         await deleteReport(id);
         await loadReportsList();
     };
+    
+    const handleShowCardFromChat = (cardId: string) => {
+        const element = document.getElementById(cardId);
+        if (element) {
+            element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            element.classList.add('ring-4', 'ring-blue-500', 'transition-all', 'duration-500');
+            setTimeout(() => element.classList.remove('ring-4', 'ring-blue-500'), 2500);
+        } else {
+            addProgress(`Could not find card ID ${cardId} to show.`, 'error');
+        }
+    };
 
 
     const { isBusy, progressMessages, csvData, analysisCards, chatHistory, finalSummary } = appState;
@@ -529,6 +543,7 @@ const App: React.FC = () => {
                             isApiKeySet={!!settings.apiKey}
                             onToggleVisibility={() => setIsAsideVisible(false)}
                             onOpenSettings={() => setIsSettingsModalOpen(true)}
+                            onShowCard={handleShowCardFromChat}
                         />
                     </aside>
                 </>

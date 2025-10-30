@@ -16,6 +16,7 @@ interface ChartRendererProps {
     selectedIndices: number[];
     onElementClick: (index: number, event: MouseEvent) => void;
     onZoomChange: (isZoomed: boolean) => void;
+    disableAnimation?: boolean;
 }
 
 // Updated color palette for better distinction and accessibility (Tableau 10)
@@ -30,7 +31,7 @@ const DESELECTED_BORDER_COLOR = 'rgba(107, 114, 128, 0.5)';
 
 let zoomPluginRegistered = false;
 
-export const ChartRenderer = forwardRef<ChartRendererHandle, ChartRendererProps>(({ chartType, data, groupByKey, valueKey, selectedIndices, onElementClick, onZoomChange }, ref) => {
+export const ChartRenderer = forwardRef<ChartRendererHandle, ChartRendererProps>(({ chartType, data, groupByKey, valueKey, selectedIndices, onElementClick, onZoomChange, disableAnimation }, ref) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const chartRef = useRef<any>(null);
 
@@ -81,6 +82,7 @@ export const ChartRenderer = forwardRef<ChartRendererHandle, ChartRendererProps>
         const commonOptions = {
             maintainAspectRatio: false,
             responsive: true,
+            animation: disableAnimation ? { duration: 0 } : undefined,
             onClick: (event: MouseEvent, elements: any[]) => {
                 if (elements.length > 0) {
                     onElementClick(elements[0].index, event);
@@ -209,7 +211,7 @@ export const ChartRenderer = forwardRef<ChartRendererHandle, ChartRendererProps>
             }
         };
 
-    }, [chartType, data, groupByKey, valueKey, selectedIndices, onElementClick, onZoomChange]);
+    }, [chartType, data, groupByKey, valueKey, selectedIndices, onElementClick, onZoomChange, disableAnimation]);
 
 
     return <canvas ref={canvasRef} />;
