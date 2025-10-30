@@ -1,3 +1,4 @@
+
 export type CsvRow = { [key: string]: string | number };
 export type CsvData = CsvRow[];
 
@@ -65,11 +66,15 @@ export interface DomAction {
     args: { [key: string]: any };
 }
 
-export interface AiChatResponse {
+export interface AiAction {
   responseType: 'plan_creation' | 'text_response' | 'dom_action';
   plan?: AnalysisPlan;
   text?: string;
   domAction?: DomAction;
+}
+
+export interface AiChatResponse {
+    actions: AiAction[];
 }
 
 export interface UnpivotPlan {

@@ -1,3 +1,4 @@
+
 # 🧠 CSV Data Analysis AI Assistant
 
 An intelligent, private, web-based AI assistant that automates CSV data analysis. Upload a `.csv` file and let the agent auto-read, understand, and generate multiple aggregated views, interactive charts, and business intelligence-style reports — all locally in your browser for maximum privacy.
@@ -21,7 +22,7 @@ This advanced tool allows users to have a conversation with their data, asking f
     *   Zoom and pan on charts to explore dense data.
     *   Click on data points to see details and multi-select for comparison.
 *   **Conversational AI Chat**: Engage in a dialogue with the AI. Ask for new analyses, inquire about data points, or request summaries. The AI maintains conversation context.
-*   **🤖 AI-Powered UI Interaction**: The assistant can directly interact with the UI to guide your analysis. It can:
+*   **🤖 "Point and Talk" Interaction**: The AI can perform a sequence of actions to guide you, creating a more natural conversational flow. For example, it can first highlight a relevant chart and then follow up with a detailed text explanation in the chat, effectively 'pointing' at what it's discussing. It can:
     *   **Highlight Cards**: Asks the AI to "highlight the card showing sales by region" and it will scroll to it and add a visual highlight.
     *   **Change Visualizations**: Tell the AI to "change the monthly users chart to a line graph".
     *   **Show Raw Data**: Ask to "show me the data for the top products card".
@@ -52,7 +53,7 @@ Your settings are saved securely in your browser's local storage and are never t
 5.  **Chat with the Assistant**:
     *   Open the side panel to chat. Ask for a new view (e.g., "Count of products by category").
     *   Ask a question about the data (e.g., "What's the average order value?").
-    *   Ask the AI to guide you (e.g., "Highlight the most important chart").
+    *   Ask the AI to guide you (e.g., "Highlight the most important chart and explain it to me").
 6.  **Manage History**: Click the "History" button in the main header to see all your past reports. You can load a previous session to continue your work or delete old reports.
 7.  **Export Your Findings**: Use the export menu on any card to save your work as a PNG, CSV, or a full HTML report.
 

@@ -324,50 +324,60 @@ const singlePlanSchema = {
 };
 
 
-const chatResponseSchema = {
+const multiActionChatResponseSchema = {
     type: Type.OBJECT,
     properties: {
-        responseType: { type: Type.STRING, enum: ['text_response', 'plan_creation', 'dom_action'] },
-        text: { type: Type.STRING, description: "A conversational text response to the user. This can accompany a 'plan_creation' or 'dom_action' to provide context." },
-        plan: {
-            ...singlePlanSchema,
-            description: "Analysis plan object. Use ONLY if responseType is 'plan_creation'."
-        },
-        domAction: {
-            type: Type.OBJECT,
-            description: "A DOM manipulation action for the frontend to execute. Use ONLY if responseType is 'dom_action'.",
-            properties: {
-                toolName: { type: Type.STRING, enum: ['highlightCard', 'changeCardChartType', 'showCardData'] },
-                args: { 
-                    type: Type.OBJECT,
-                    description: 'Arguments for the tool. e.g., { cardId: "..." }',
-                    properties: {
-                        cardId: { type: Type.STRING, description: 'The ID of the target analysis card.' },
-                        newType: { type: Type.STRING, enum: ['bar', 'line', 'pie'], description: "The new chart type. Required for 'changeCardChartType'." },
-                        visible: { type: Type.BOOLEAN, description: "Whether to show or hide the data table. Required for 'showCardData'." },
+        actions: {
+            type: Type.ARRAY,
+            description: "A sequence of actions for the assistant to perform.",
+            items: {
+                type: Type.OBJECT,
+                properties: {
+                    responseType: { type: Type.STRING, enum: ['text_response', 'plan_creation', 'dom_action'] },
+                    text: { type: Type.STRING, description: "A conversational text response to the user. Required for 'text_response'." },
+                    plan: {
+                        ...singlePlanSchema,
+                        description: "Analysis plan object. Required for 'plan_creation'."
                     },
-                    required: ['cardId'],
+                    domAction: {
+                        type: Type.OBJECT,
+                        description: "A DOM manipulation action for the frontend to execute. Required for 'dom_action'.",
+                        properties: {
+                            toolName: { type: Type.STRING, enum: ['highlightCard', 'changeCardChartType', 'showCardData'] },
+                            args: {
+                                type: Type.OBJECT,
+                                description: 'Arguments for the tool. e.g., { cardId: "..." }',
+                                properties: {
+                                    cardId: { type: Type.STRING, description: 'The ID of the target analysis card.' },
+                                    newType: { type: Type.STRING, enum: ['bar', 'line', 'pie'], description: "The new chart type. Required for 'changeCardChartType'." },
+                                    visible: { type: Type.BOOLEAN, description: "Whether to show or hide the data table. Required for 'showCardData'." },
+                                },
+                                required: ['cardId'],
+                            },
+                        },
+                        required: ['toolName', 'args']
+                    }
                 },
-            },
-            required: ['toolName', 'args']
+                required: ['responseType']
+            }
         }
     },
-    required: ['responseType']
+    required: ['actions']
 };
 
 
 export const generateChatResponse = async (
-    columns: ColumnProfile[], 
+    columns: ColumnProfile[],
     sampleData: CsvData,
     chatHistory: ChatMessage[],
     userPrompt: string,
-    existingCards: {id: string, title: string}[],
+    existingCards: { id: string, title: string }[],
     settings: Settings
 ): Promise<AiChatResponse> => {
     if (!settings.apiKey) {
-        return { responseType: 'text_response', text: 'Cloud AI is disabled. API Key not provided.' };
+        return { actions: [{ responseType: 'text_response', text: 'Cloud AI is disabled. API Key not provided.' }] };
     }
-    
+
     const ai = new GoogleGenAI({ apiKey: settings.apiKey });
 
     const categoricalCols = columns.filter(c => c.type === 'categorical').map(c => c.name);
@@ -375,58 +385,59 @@ export const generateChatResponse = async (
     const history = chatHistory.map(m => `${m.sender}: ${m.text}`).join('\n');
 
     const prompt = `
-        You are a helpful and conversational data analysis assistant integrated into a web application. Your responses should be in ${settings.language}.
-        
+        You are a helpful and conversational data analysis assistant. Your task is to respond to the user by breaking down their request into a sequence of actions. Your responses should be in ${settings.language}.
+
         You have access to a dataset with:
         - Categorical columns: ${categoricalCols.join(', ')}
         - Numerical columns: ${numericalCols.join(', ')}
-        
-        Sample Data (first 5 rows):
-        ${JSON.stringify(sampleData, null, 2)}
 
         The following analysis cards are currently displayed on the screen:
         ${existingCards.length > 0 ? JSON.stringify(existingCards) : "No cards yet."}
-        
+
         Conversation history:
         ${history}
-        
-        The user's latest message is: "${userPrompt}"
-        
-        Your task is to respond intelligently. You have three response options:
-        1.  **text_response**: For general conversation, questions, or comments.
-        2.  **plan_creation**: If the user asks for a NEW chart, visualization, or data aggregation not already present.
-        3.  **dom_action**: If the user wants to INTERACT with an EXISTING card (e.g., "highlight," "show data for," "change to pie chart"). Use this to guide the user.
 
-        Here are the available 'dom_action' tools:
+        The user's latest message is: "${userPrompt}"
+
+        Your task is to respond by creating a sequence of one or more actions. You have three action types:
+        1.  **text_response**: For general conversation, questions, or comments.
+        2.  **plan_creation**: If the user asks for a NEW chart or data aggregation.
+        3.  **dom_action**: If the user wants to INTERACT with an EXISTING card (e.g., "highlight," "show data for," "change to pie chart").
+
+        Available 'dom_action' tools:
         - **highlightCard**: Scrolls to and highlights a card. Args: { "cardId": "..." }.
         - **changeCardChartType**: Changes a card's chart. Args: { "cardId": "...", "newType": "bar" | "line" | "pie" }.
-        - **showCardData**: Shows or hides the data table for a card. Args: { "cardId": "...", "visible": boolean }.
+        - **showCardData**: Shows/hides the data table for a card. Args: { "cardId": "...", "visible": boolean }.
 
         Decision-making process:
-        - If the user asks for a new analysis (e.g., "show me sales by year"), use 'plan_creation'.
-        - If the user refers to an existing card (e.g., "highlight the sales by region card" or "for that last card, show the data"), find the correct 'cardId' from the list above and use 'dom_action'.
-        - If the user is just chatting (e.g., "thank you", "what is the highest sale?"), use 'text_response'.
-        - When using 'dom_action' or 'plan_creation', you can also provide a 'text' property in ${settings.language} to explain what you're doing. For example, "Sure, I'm highlighting the sales card for you now."
-        
-        Your output MUST be a single JSON object matching the provided schema.
+        - THINK STEP-BY-STEP. A single user request might require multiple actions.
+        - If the user asks to see something and then explain it, this is a multi-step action.
+        - **Multi-step example**: If user says "Highlight the monthly sales card and explain the trend", you must return TWO actions in the array:
+            1. A 'text_response' action that says something like "Certainly, I'll highlight that card for you."
+            2. A 'dom_action' to 'highlightCard' for the correct cardId.
+            3. A 'text_response' action with the explanation of the trend.
+        - Always prefer to be conversational. Use 'text_response' actions to acknowledge the user and explain what you are doing.
+        - If the user asks for a new analysis, use a 'text_response' to confirm, then a 'plan_creation' action.
+        - If the user is just chatting (e.g., "thank you"), use a single 'text_response'.
+
+        Your output MUST be a single JSON object with an "actions" key containing an array of action objects.
     `;
-    
+
     try {
         const response = await ai.models.generateContent({
             model: settings.model,
             contents: prompt,
             config: {
                 responseMimeType: 'application/json',
-                responseSchema: chatResponseSchema,
+                responseSchema: multiActionChatResponseSchema,
             },
         });
 
         const jsonStr = response.text.trim();
         const chatResponse = JSON.parse(jsonStr) as AiChatResponse;
 
-        // Basic validation
-        if (!chatResponse.responseType || (!chatResponse.plan && !chatResponse.text && !chatResponse.domAction)) {
-             throw new Error("Invalid response structure from AI.");
+        if (!chatResponse.actions || !Array.isArray(chatResponse.actions)) {
+            throw new Error("Invalid response structure from AI: 'actions' array not found.");
         }
         return chatResponse;
     } catch (error) {

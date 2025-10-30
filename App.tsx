@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { AnalysisPanel } from './components/AnalysisPanel';
 import { ChatPanel } from './components/ChatPanel';
@@ -208,6 +209,11 @@ const App: React.FC = () => {
                     addProgress('No data quality issues found.');
                 }
 
+                if (dataForAnalysis.length === 0) {
+                    addProgress('The dataset is empty after cleaning. Halting analysis.', 'error');
+                    throw new Error('The dataset became empty after removing summary rows.');
+                }
+
                 addProgress('AI is analyzing data structure...');
                 profiles = profileData(dataForAnalysis); 
                 const structureAnalysis = await analyzeDataStructure(profiles, dataForAnalysis.slice(0, 5), settings);
@@ -215,6 +221,12 @@ const App: React.FC = () => {
                 if (structureAnalysis.format === 'crosstab' && structureAnalysis.unpivotPlan) {
                     addProgress('Cross-tab format detected. Reshaping data...');
                     dataForAnalysis = unpivotData(dataForAnalysis, structureAnalysis.unpivotPlan);
+                    
+                    if (dataForAnalysis.length === 0) {
+                        addProgress('Data is empty after reshaping. Halting analysis.', 'error');
+                        throw new Error('Data became empty after attempting to reshape from cross-tab format. The AI might have misidentified the data structure.');
+                    }
+
                     addProgress(`Data reshaped. New columns: ${Object.keys(dataForAnalysis[0]).join(', ')}`);
                     addProgress('Re-profiling reshaped data...');
                     profiles = profileData(dataForAnalysis);
@@ -332,7 +344,7 @@ const App: React.FC = () => {
 
         try {
             addProgress('AI is thinking...');
-            const chatResponse: AiChatResponse = await generateChatResponse(
+            const response: AiChatResponse = await generateChatResponse(
                 appState.columnProfiles,
                 appState.csvData.slice(0, 5),
                 appState.chatHistory,
@@ -341,38 +353,34 @@ const App: React.FC = () => {
                 settings
             );
 
-            if (chatResponse.responseType === 'plan_creation' && chatResponse.plan) {
-                const newPlan = chatResponse.plan;
-                addProgress(`AI created a new plan: "${newPlan.title}"`);
-                await runAnalysisPipeline([newPlan], appState.csvData, true);
-                
-                if (isMounted.current) {
-                    const aiMessage: ChatMessage = { 
-                        sender: 'ai', 
-                        text: `I've created a new analysis for "${newPlan.title}". You can see it in the main panel.`, 
-                        timestamp: new Date() 
-                    };
-                    setAppState(prev => ({...prev, chatHistory: [...prev.chatHistory, aiMessage]}));
+            const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
+            const actions = response.actions;
+
+            for (const action of actions) {
+                switch (action.responseType) {
+                    case 'text_response':
+                        if (action.text && isMounted.current) {
+                            const aiMessage: ChatMessage = { sender: 'ai', text: action.text, timestamp: new Date() };
+                            setAppState(prev => ({...prev, chatHistory: [...prev.chatHistory, aiMessage]}));
+                        }
+                        break;
+                    case 'plan_creation':
+                        if (action.plan) {
+                            await runAnalysisPipeline([action.plan], appState.csvData, true);
+                        }
+                        break;
+                    case 'dom_action':
+                        if (action.domAction) {
+                            executeDomAction(action.domAction);
+                        }
+                        break;
+                    default:
+                        console.warn('Unknown AI action type:', (action as any).responseType);
                 }
-            } else if (chatResponse.responseType === 'text_response' && chatResponse.text) {
-                const textResponse = chatResponse.text;
-                if (isMounted.current) {
-                    const aiMessage: ChatMessage = { sender: 'ai', text: textResponse, timestamp: new Date() };
-                    setAppState(prev => ({...prev, chatHistory: [...prev.chatHistory, aiMessage]}));
+
+                if (actions.length > 1) {
+                    await sleep(750); // Delay for a more natural step-by-step feel
                 }
-                addProgress('AI responded.');
-            } else if (chatResponse.responseType === 'dom_action' && chatResponse.domAction) {
-                executeDomAction(chatResponse.domAction);
-                if (isMounted.current) {
-                    const aiMessage: ChatMessage = { 
-                        sender: 'ai', 
-                        text: chatResponse.text || `Okay, I've performed the action: ${chatResponse.domAction.toolName}.`, 
-                        timestamp: new Date() 
-                    };
-                    setAppState(prev => ({...prev, chatHistory: [...prev.chatHistory, aiMessage]}));
-                }
-            } else {
-                throw new Error("AI returned an unexpected response format.");
             }
 
         } catch(error) {
