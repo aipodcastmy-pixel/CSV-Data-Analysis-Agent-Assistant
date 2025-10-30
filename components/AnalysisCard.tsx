@@ -1,16 +1,16 @@
-
-
 import React, { useRef, useState } from 'react';
 import { AnalysisCardData, ChartType } from '../types';
 import { ChartRenderer, ChartRendererHandle } from './ChartRenderer';
 import { DataTable } from './DataTable';
 import { exportToPng, exportToCsv, exportToHtml } from '../utils/exportUtils';
 import { ChartTypeSwitcher } from './ChartTypeSwitcher';
+import { applyTopNWithOthers } from '../utils/dataProcessor';
 
 interface AnalysisCardProps {
     cardData: AnalysisCardData;
     onChartTypeChange: (cardId: string, newType: ChartType) => void;
     onToggleDataVisibility: (cardId: string) => void;
+    onTopNChange: (cardId: string, topN: number | null) => void;
 }
 
 const ExportIcon: React.FC = () => (
@@ -33,8 +33,8 @@ const ClearSelectionIcon: React.FC = () => (
 );
 
 
-export const AnalysisCard: React.FC<AnalysisCardProps> = ({ cardData, onChartTypeChange, onToggleDataVisibility }) => {
-    const { id, plan, aggregatedData, summary, displayChartType, isDataVisible } = cardData;
+export const AnalysisCard: React.FC<AnalysisCardProps> = ({ cardData, onChartTypeChange, onToggleDataVisibility, onTopNChange }) => {
+    const { id, plan, aggregatedData, summary, displayChartType, isDataVisible, topN } = cardData;
     const cardRef = useRef<HTMLDivElement>(null);
     const chartRendererRef = useRef<ChartRendererHandle>(null);
 
@@ -47,6 +47,9 @@ export const AnalysisCard: React.FC<AnalysisCardProps> = ({ cardData, onChartTyp
     const englishSummary = summaryParts[0]?.trim();
     const mandarinSummary = summaryParts[1]?.trim();
 
+    const valueKey = plan.valueColumn || 'count';
+    const dataForDisplay = topN ? applyTopNWithOthers(aggregatedData, plan.groupByColumn, valueKey, topN) : aggregatedData;
+
     const handleExport = async (format: 'png' | 'csv' | 'html') => {
         if (!cardRef.current) return;
         setIsExporting(true);
@@ -56,10 +59,10 @@ export const AnalysisCard: React.FC<AnalysisCardProps> = ({ cardData, onChartTyp
                     await exportToPng(cardRef.current, plan.title);
                     break;
                 case 'csv':
-                    exportToCsv(aggregatedData, plan.title);
+                    exportToCsv(dataForDisplay, plan.title);
                     break;
                 case 'html':
-                    await exportToHtml(cardRef.current, plan.title, aggregatedData, summary);
+                    await exportToHtml(cardRef.current, plan.title, dataForDisplay, summary);
                     break;
             }
         } finally {
@@ -87,8 +90,13 @@ export const AnalysisCard: React.FC<AnalysisCardProps> = ({ cardData, onChartTyp
     const clearSelection = () => {
         setSelectedIndices([]);
     };
+
+    const handleTopNChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+        const value = e.target.value === 'all' ? null : parseInt(e.target.value, 10);
+        onTopNChange(id, value);
+    };
     
-    const selectedData = selectedIndices.map(index => aggregatedData[index]);
+    const selectedData = selectedIndices.map(index => dataForDisplay[index]);
 
     return (
         <div ref={cardRef} id={id} className="bg-gray-800 rounded-lg shadow-lg p-4 flex flex-col transition-all duration-300 hover:shadow-blue-500/20">
@@ -116,9 +124,9 @@ export const AnalysisCard: React.FC<AnalysisCardProps> = ({ cardData, onChartTyp
                  <ChartRenderer 
                     ref={chartRendererRef}
                     chartType={displayChartType} 
-                    data={aggregatedData} 
+                    data={dataForDisplay} 
                     groupByKey={plan.groupByColumn}
-                    valueKey={plan.valueColumn || 'count'}
+                    valueKey={valueKey}
                     selectedIndices={selectedIndices}
                     onElementClick={handleChartClick}
                     onZoomChange={setIsZoomed}
@@ -136,10 +144,29 @@ export const AnalysisCard: React.FC<AnalysisCardProps> = ({ cardData, onChartTyp
                     )}
                 </div>
             </div>
-             <div className="bg-gray-900/50 p-3 rounded-md text-sm">
-                <p className="font-semibold text-blue-300 mb-1">AI Summary</p>
-                <p className="text-gray-300">{englishSummary}</p>
-                {mandarinSummary && <p className="text-gray-400 mt-2">{mandarinSummary}</p>}
+
+            <div className="flex items-center justify-between">
+                <div className="bg-gray-900/50 p-3 rounded-md text-sm flex-grow">
+                    <p className="font-semibold text-blue-300 mb-1">AI Summary</p>
+                    <p className="text-gray-300">{englishSummary}</p>
+                    {mandarinSummary && <p className="text-gray-400 mt-2">{mandarinSummary}</p>}
+                </div>
+                {aggregatedData.length > 5 && (
+                    <div className="ml-4 flex-shrink-0">
+                        <label htmlFor={`top-n-${id}`} className="text-xs text-gray-400 block mb-1">Show Top</label>
+                        <select
+                            id={`top-n-${id}`}
+                            value={topN || 'all'}
+                            onChange={handleTopNChange}
+                            className="bg-gray-700 border border-gray-600 text-white text-xs rounded-md p-1 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        >
+                            <option value="all">All</option>
+                            <option value="5">Top 5</option>
+                            <option value="10">Top 10</option>
+                            <option value="20">Top 20</option>
+                        </select>
+                    </div>
+                )}
             </div>
 
             {selectedIndices.length > 0 && (
@@ -157,7 +184,7 @@ export const AnalysisCard: React.FC<AnalysisCardProps> = ({ cardData, onChartTyp
                 </button>
                 {isDataVisible && (
                      <div className="mt-2 max-h-48 overflow-y-auto">
-                        <DataTable data={aggregatedData} />
+                        <DataTable data={dataForDisplay} />
                     </div>
                 )}
             </div>

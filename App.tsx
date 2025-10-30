@@ -3,10 +3,11 @@ import { AnalysisPanel } from './components/AnalysisPanel';
 import { ChatPanel } from './components/ChatPanel';
 import { FileUpload } from './components/FileUpload';
 import { SettingsModal } from './components/SettingsModal';
-import { AnalysisCardData, ChatMessage, ProgressMessage, CsvData, AnalysisPlan, AppState, ColumnProfile, AiChatResponse, ChartType, DomAction, Settings } from './types';
-import { processCsv, profileData, executePlan } from './utils/dataProcessor';
-import { generateAnalysisPlans, generateSummary, generateFinalSummary, generateChatResponse } from './services/geminiService';
-import { getSession, saveSession, getSettings, saveSettings } from './storageService';
+import { HistoryPanel } from './components/HistoryPanel';
+import { AnalysisCardData, ChatMessage, ProgressMessage, CsvData, AnalysisPlan, AppState, ColumnProfile, AiChatResponse, ChartType, DomAction, Settings, Report, ReportListItem } from './types';
+import { processCsv, profileData, executePlan, unpivotData, cleanData } from './utils/dataProcessor';
+import { generateAnalysisPlans, generateSummary, generateFinalSummary, generateChatResponse, analyzeDataStructure, createDataCleaningPlan } from './services/geminiService';
+import { getReportsList, saveReport, getReport, deleteReport, getSettings, saveSettings } from './storageService';
 
 const MIN_ASIDE_WIDTH = 320;
 const MAX_ASIDE_WIDTH = 800;
@@ -14,6 +15,12 @@ const MAX_ASIDE_WIDTH = 800;
 const ShowAssistantIcon: React.FC = () => (
     <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+    </svg>
+);
+
+const HistoryIcon: React.FC = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
     </svg>
 );
 
@@ -33,32 +40,41 @@ const App: React.FC = () => {
     const [isAsideVisible, setIsAsideVisible] = useState(true);
     const [asideWidth, setAsideWidth] = useState(window.innerWidth / 4 > MIN_ASIDE_WIDTH ? window.innerWidth / 4 : MIN_ASIDE_WIDTH);
     const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+    const [isHistoryPanelOpen, setIsHistoryPanelOpen] = useState(false);
     const [settings, setSettings] = useState<Settings>(getSettings);
+    const [reportsList, setReportsList] = useState<ReportListItem[]>([]);
+    const [currentReportId, setCurrentReportId] = useState<string | null>(null);
 
     const isResizingRef = useRef(false);
     const isMounted = useRef(true);
 
     useEffect(() => {
         isMounted.current = true;
-        const loadInitialData = async () => {
-            const savedState = await getSession();
-            if (savedState && isMounted.current) {
-                setAppState(savedState);
-            }
-        };
-        loadInitialData();
+        loadReportsList();
         setSettings(getSettings());
-
-        return () => {
-            isMounted.current = false;
-        };
+        return () => { isMounted.current = false; };
     }, []);
 
     useEffect(() => {
-        if (appState.csvData || appState.analysisCards.length > 0) {
-            saveSession(appState);
+        const saveCurrentState = async () => {
+            if (currentReportId && isMounted.current) {
+                const currentReport = await getReport(currentReportId);
+                if (currentReport) {
+                    const updatedReport = { ...currentReport, appState: appState, updatedAt: new Date() };
+                    await saveReport(updatedReport);
+                }
+            }
+        };
+        const debounceSave = setTimeout(saveCurrentState, 500); // Debounce saving
+        return () => clearTimeout(debounceSave);
+    }, [appState, currentReportId]);
+
+    const loadReportsList = async () => {
+        const list = await getReportsList();
+        if (isMounted.current) {
+            setReportsList(list);
         }
-    }, [appState]);
+    };
     
     const handleSaveSettings = (newSettings: Settings) => {
         saveSettings(newSettings);
@@ -120,6 +136,7 @@ const App: React.FC = () => {
                     summary: summary,
                     displayChartType: plan.chartType,
                     isDataVisible: false,
+                    topN: null
                 };
                 newCards.push(newCard);
                 if (isMounted.current) {
@@ -147,7 +164,7 @@ const App: React.FC = () => {
 
     const handleFileUpload = useCallback(async (file: File) => {
         if (!isMounted.current) return;
-        setAppState({
+        const initialState: AppState = {
             isBusy: true,
             useCloudAI: appState.useCloudAI,
             progressMessages: [],
@@ -156,33 +173,76 @@ const App: React.FC = () => {
             analysisCards: [],
             chatHistory: [],
             finalSummary: null,
-        });
+        };
+        setAppState(initialState);
+        
+        const newReport: Report = {
+            id: `report-${Date.now()}`,
+            filename: file.name,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            appState: initialState,
+        };
+        setCurrentReportId(newReport.id);
         
         try {
             addProgress('Parsing CSV file...');
-            const data = await processCsv(file);
+            let rawData = await processCsv(file);
             if (!isMounted.current) return;
-            setAppState(prev => ({ ...prev, csvData: data }));
-            addProgress(`Parsed ${data.length} rows.`);
+            addProgress(`Parsed ${rawData.length} rows.`);
 
-            addProgress('Profiling data columns...');
-            const profiles = profileData(data);
-            if (!isMounted.current) return;
-            setAppState(prev => ({ ...prev, columnProfiles: profiles }));
-            addProgress('Data profiling complete.');
-            
-            if (appState.useCloudAI) {
-                if (!settings.apiKey) {
-                    addProgress('API Key not set. Please add your Gemini API Key in the settings.', 'error');
-                    setIsSettingsModalOpen(true);
+            let dataForAnalysis = rawData;
+            let profiles: ColumnProfile[];
+
+            if (appState.useCloudAI && settings.apiKey) {
+                addProgress('AI is checking for data quality issues...');
+                const initialProfiles = profileData(rawData);
+                const cleaningPlan = await createDataCleaningPlan(initialProfiles, rawData.slice(0, 10), settings);
+
+                if (cleaningPlan && cleaningPlan.excludeRows.length > 0) {
+                    const originalRowCount = dataForAnalysis.length;
+                    dataForAnalysis = cleanData(dataForAnalysis, cleaningPlan);
+                    const removedCount = originalRowCount - dataForAnalysis.length;
+                    addProgress(`Data cleaning applied. Excluded ${removedCount} summary/total row(s).`);
                 } else {
-                    addProgress('AI is generating analysis plans...');
-                    const plans = await generateAnalysisPlans(profiles, data.slice(0, 5), settings);
-                    addProgress(`AI proposed ${plans.length} plans.`);
-                    await runAnalysisPipeline(plans, data, false);
+                    addProgress('No data quality issues found.');
                 }
+
+                addProgress('AI is analyzing data structure...');
+                profiles = profileData(dataForAnalysis); 
+                const structureAnalysis = await analyzeDataStructure(profiles, dataForAnalysis.slice(0, 5), settings);
+
+                if (structureAnalysis.format === 'crosstab' && structureAnalysis.unpivotPlan) {
+                    addProgress('Cross-tab format detected. Reshaping data...');
+                    dataForAnalysis = unpivotData(dataForAnalysis, structureAnalysis.unpivotPlan);
+                    addProgress(`Data reshaped. New columns: ${Object.keys(dataForAnalysis[0]).join(', ')}`);
+                    addProgress('Re-profiling reshaped data...');
+                    profiles = profileData(dataForAnalysis);
+                    addProgress('Re-profiling complete.');
+                } else {
+                    addProgress('Standard data format confirmed.');
+                }
+
+                if (!isMounted.current) return;
+                setAppState(prev => ({ ...prev, csvData: dataForAnalysis, columnProfiles: profiles }));
+
+                addProgress('AI is generating analysis plans...');
+                const plans = await generateAnalysisPlans(profiles, dataForAnalysis.slice(0, 5), settings);
+                addProgress(`AI proposed ${plans.length} plans.`);
+                await runAnalysisPipeline(plans, dataForAnalysis, false);
+
             } else {
-                 addProgress('Cloud AI is disabled. Manual analysis via chat is available.');
+                 profiles = profileData(dataForAnalysis);
+                 addProgress('Profiling data columns...');
+                 addProgress('Data profiling complete.');
+                 
+                 if (appState.useCloudAI && !settings.apiKey) {
+                     addProgress('API Key not set. Please add your Gemini API Key in the settings.', 'error');
+                     setIsSettingsModalOpen(true);
+                 } else {
+                    addProgress('Cloud AI is disabled. Manual analysis via chat is available.');
+                 }
+                 setAppState(prev => ({ ...prev, csvData: dataForAnalysis, columnProfiles: profiles }));
             }
 
         } catch (error) {
@@ -193,6 +253,7 @@ const App: React.FC = () => {
             if (isMounted.current) {
                 setAppState(prev => ({ ...prev, isBusy: false }));
                 addProgress('Analysis complete. Ready for chat.');
+                await loadReportsList(); // Refresh history
             }
         }
     }, [addProgress, runAnalysisPipeline, appState.useCloudAI, settings]);
@@ -347,6 +408,35 @@ const App: React.FC = () => {
         }))
     }
 
+    const handleTopNChange = (cardId: string, topN: number | null) => {
+        setAppState(prev => ({
+            ...prev,
+            analysisCards: prev.analysisCards.map(c => c.id === cardId ? {...c, topN: topN} : c)
+        }));
+    };
+
+    const handleLoadReport = async (id: string) => {
+        const report = await getReport(id);
+        if (report && isMounted.current) {
+            setAppState(report.appState);
+            setCurrentReportId(id);
+            setIsHistoryPanelOpen(false);
+        }
+    };
+
+    const handleDeleteReport = async (id: string) => {
+        await deleteReport(id);
+        if (currentReportId === id) {
+            setCurrentReportId(null);
+            setAppState({
+                isBusy: false, useCloudAI: appState.useCloudAI, progressMessages: [], csvData: null, 
+                columnProfiles: [], analysisCards: [], chatHistory: [], finalSummary: null
+            });
+        }
+        await loadReportsList();
+    };
+
+
     const { isBusy, progressMessages, csvData, analysisCards, chatHistory, finalSummary, useCloudAI } = appState;
 
     return (
@@ -357,10 +447,27 @@ const App: React.FC = () => {
                 onSave={handleSaveSettings}
                 currentSettings={settings}
             />
+            <HistoryPanel
+                isOpen={isHistoryPanelOpen}
+                onClose={() => setIsHistoryPanelOpen(false)}
+                reports={reportsList}
+                onLoadReport={handleLoadReport}
+                onDeleteReport={handleDeleteReport}
+            />
             <main className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8">
-                <header className="mb-6">
-                    <h1 className="text-3xl font-bold text-white">🧠 CSV Data Analysis AI Assistant</h1>
-                    <p className="text-gray-400 mt-1">Upload → Auto-Analyze → Visualize → Summarize → Chat</p>
+                <header className="mb-6 flex justify-between items-center">
+                    <div>
+                        <h1 className="text-3xl font-bold text-white">🧠 CSV Data Analysis AI Assistant</h1>
+                        <p className="text-gray-400 mt-1">Upload → Auto-Analyze → Visualize → Summarize → Chat</p>
+                    </div>
+                    <button 
+                        onClick={() => setIsHistoryPanelOpen(true)}
+                        className="flex items-center space-x-2 px-3 py-2 bg-gray-700 text-gray-300 rounded-md hover:bg-gray-600 hover:text-white transition-colors"
+                        title="View analysis history"
+                    >
+                       <HistoryIcon />
+                       <span className="hidden sm:inline">History</span>
+                    </button>
                 </header>
                 {csvData ? (
                     <AnalysisPanel 
@@ -368,6 +475,7 @@ const App: React.FC = () => {
                         finalSummary={finalSummary}
                         onChartTypeChange={handleChartTypeChange}
                         onToggleDataVisibility={handleToggleDataVisibility}
+                        onTopNChange={handleTopNChange}
                     />
                 ) : (
                     <FileUpload 

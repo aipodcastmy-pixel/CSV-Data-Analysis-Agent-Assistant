@@ -9,9 +9,10 @@ interface AnalysisPanelProps {
     finalSummary: string | null;
     onChartTypeChange: (cardId: string, newType: ChartType) => void;
     onToggleDataVisibility: (cardId: string) => void;
+    onTopNChange: (cardId: string, topN: number | null) => void;
 }
 
-export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({ cards, finalSummary, onChartTypeChange, onToggleDataVisibility }) => {
+export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({ cards, finalSummary, onChartTypeChange, onToggleDataVisibility, onTopNChange }) => {
     if (cards.length === 0) {
         return (
             <div className="flex items-center justify-center h-64 border-2 border-dashed border-gray-600 rounded-lg">
@@ -30,6 +31,7 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({ cards, finalSummar
                         cardData={card} 
                         onChartTypeChange={onChartTypeChange}
                         onToggleDataVisibility={onToggleDataVisibility}
+                        onTopNChange={onTopNChange}
                     />
                 ))}
             </div>

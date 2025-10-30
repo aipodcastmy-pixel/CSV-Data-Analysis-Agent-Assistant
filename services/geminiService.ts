@@ -1,7 +1,7 @@
 
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { AnalysisPlan, CsvData, ColumnProfile, AnalysisCardData, AiChatResponse, ChatMessage, Settings } from '../types';
+import { AnalysisPlan, CsvData, ColumnProfile, AnalysisCardData, AiChatResponse, ChatMessage, Settings, DataStructureAnalysis, CleaningPlan } from '../types';
 
 const planSchema = {
   type: Type.ARRAY,
@@ -18,6 +18,162 @@ const planSchema = {
     required: ['chartType', 'title', 'description', 'aggregation', 'groupByColumn'],
   },
 };
+
+const dataStructureSchema = {
+    type: Type.OBJECT,
+    properties: {
+        format: { type: Type.STRING, enum: ['tidy', 'crosstab'], description: 'The detected format of the data.' },
+        unpivotPlan: {
+            type: Type.OBJECT,
+            description: "Required if format is 'crosstab'. Defines how to unpivot the data.",
+            properties: {
+                indexColumns: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Columns to keep as is (e.g., 'Date', 'Product ID')." },
+                valueColumns: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Columns to be unpivoted (e.g., 'Q1_Sales', 'Q2_Sales', 'Region_A', 'Region_B')." },
+                variableColumnName: { type: Type.STRING, description: "The name for the new column created from the headers of valueColumns (e.g., 'Quarter', 'Region')." },
+                valueColumnName: { type: Type.STRING, description: "The name for the new column that will hold the values from valueColumns (e.g., 'Sales', 'Amount')." },
+            },
+            required: ['indexColumns', 'valueColumns', 'variableColumnName', 'valueColumnName'],
+        },
+    },
+    required: ['format'],
+};
+
+const cleaningPlanSchema = {
+    type: Type.OBJECT,
+    properties: {
+        excludeRows: {
+            type: Type.ARRAY,
+            description: "A list of rules to identify rows that should be excluded from analysis.",
+            items: {
+                type: Type.OBJECT,
+                properties: {
+                    column: { type: Type.STRING, description: "The column to check the rule against." },
+                    contains: { type: Type.STRING, description: "Exclude row if the column value contains this substring (case-insensitive)." },
+                    equals: { type: Type.STRING, description: "Exclude row if the column value exactly equals this string." },
+                    startsWith: { type: Type.STRING, description: "Exclude row if the column value starts with this substring." },
+                },
+                required: ['column']
+            }
+        }
+    },
+    required: ['excludeRows']
+};
+
+
+export const createDataCleaningPlan = async (
+    columns: ColumnProfile[],
+    sampleData: CsvData,
+    settings: Settings
+): Promise<CleaningPlan> => {
+     if (!settings.apiKey) return { excludeRows: [] };
+
+    const ai = new GoogleGenAI({ apiKey: settings.apiKey });
+    const columnNames = columns.map(c => c.name).join(', ');
+
+    const prompt = `
+        You are a data quality analyst. Your task is to identify and create rules to exclude non-data rows from a dataset, such as summary rows (totals, subtotals), empty rows, or report footers.
+
+        Dataset Columns: ${columnNames}
+
+        Sample Data:
+        ${JSON.stringify(sampleData, null, 2)}
+
+        Analysis:
+        1.  Scan the sample data for rows that are clearly not individual data entries.
+        2.  Look for keywords like 'Total', 'Subtotal', 'Grand Total', 'Summary' in any of the columns. These often indicate summary rows.
+        3.  Also look for rows where key columns are empty, which might indicate a separator or footer row.
+        4.  For each type of row to exclude, create a simple, robust rule. Prefer 'contains' for flexibility. For example, if a row in the 'Product' column says "Grand Total", a good rule is { "column": "Product", "contains": "Total" }.
+
+        Example:
+        - Sample Row: { "Region": "Grand Total", "Sales": 50000 }
+        - Result: { "excludeRows": [{ "column": "Region", "contains": "Total" }] }
+
+        Example:
+        - Sample Row: { "Date": null, "Region": null, "Sales": null }
+        - This is likely a blank row, but it's hard to make a specific rule. Only create rules for rows with clear text indicators like 'Total'.
+
+        If no such rows are found, return an empty 'excludeRows' array.
+        Your response must be a valid JSON object adhering to the provided schema.
+    `;
+
+    try {
+         const response = await ai.models.generateContent({
+            model: settings.model,
+            contents: prompt,
+            config: {
+                responseMimeType: 'application/json',
+                responseSchema: cleaningPlanSchema,
+            },
+        });
+        
+        const jsonStr = response.text.trim();
+        return JSON.parse(jsonStr) as CleaningPlan;
+    } catch (error) {
+        console.error("Error creating data cleaning plan:", error);
+        return { excludeRows: [] }; // Return empty plan on error
+    }
+};
+
+export const analyzeDataStructure = async (
+    columns: ColumnProfile[],
+    sampleData: CsvData,
+    settings: Settings
+): Promise<DataStructureAnalysis> => {
+    if (!settings.apiKey) return { format: 'tidy' };
+
+    const ai = new GoogleGenAI({ apiKey: settings.apiKey });
+    const columnNames = columns.map(c => c.name);
+
+    const prompt = `
+        You are a data structure analyst. Your task is to determine if a dataset is in a 'tidy' (long) format or a 'crosstab' (wide) format.
+
+        - **Tidy Data**: Each row is a single observation. Each column is a variable. This is the standard format.
+        - **Crosstab Data**: Some column headers are values, not variables. For example, columns named '2022', '2023', 'Q1', 'Q2', or 'USA', 'Canada'. This data needs to be "unpivoted" or "melted" to be useful for standard analysis.
+
+        Dataset Columns: ${columnNames.join(', ')}
+
+        Sample Data:
+        ${JSON.stringify(sampleData, null, 2)}
+
+        Analysis:
+        1.  Examine the column names. Do they look like categories (e.g., years, regions, quarters)?
+        2.  If it looks like a crosstab, identify the 'indexColumns' (columns that uniquely identify a row, like 'Product' or 'Employee Name') and the 'valueColumns' (the columns that should be unpivoted).
+        3.  Propose a sensible 'variableColumnName' (for the headers of the value columns) and a 'valueColumnName' (for the cell values).
+
+        Example 1:
+        - Columns: ['Product', 'Q1_Sales', 'Q2_Sales']
+        - Result: format: 'crosstab', unpivotPlan: { indexColumns: ['Product'], valueColumns: ['Q1_Sales', 'Q2_Sales'], variableColumnName: 'Quarter', valueColumnName: 'Sales' }
+
+        Example 2:
+        - Columns: ['Date', 'Region', 'Sales']
+        - Result: format: 'tidy'
+
+        Example 3:
+        - Columns: ['Department', 'Jan', 'Feb', 'Mar']
+        - Result: format: 'crosstab', unpivotPlan: { indexColumns: ['Department'], valueColumns: ['Jan', 'Feb', 'Mar'], variableColumnName: 'Month', valueColumnName: 'Value' }
+        
+        Your response must be a valid JSON object adhering to the provided schema.
+    `;
+    
+    try {
+        const response = await ai.models.generateContent({
+            model: settings.model,
+            contents: prompt,
+            config: {
+                responseMimeType: 'application/json',
+                responseSchema: dataStructureSchema,
+            },
+        });
+        
+        const jsonStr = response.text.trim();
+        return JSON.parse(jsonStr) as DataStructureAnalysis;
+    } catch (error) {
+        console.error("Error analyzing data structure:", error);
+        // Default to tidy format on failure to avoid breaking the pipeline
+        return { format: 'tidy' };
+    }
+};
+
 
 export const generateAnalysisPlans = async (
     columns: ColumnProfile[], 

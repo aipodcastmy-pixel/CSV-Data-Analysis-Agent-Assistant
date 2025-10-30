@@ -26,8 +26,9 @@ export interface AnalysisCardData {
     plan: AnalysisPlan;
     aggregatedData: CsvData;
     summary: string;
-    displayChartType: ChartType; // The currently displayed chart type
-    isDataVisible: boolean;      // Whether the data table is shown
+    displayChartType: ChartType;
+    isDataVisible: boolean;
+    topN: number | null; // For Top N filtering
 }
 
 export interface ProgressMessage {
@@ -69,4 +70,43 @@ export interface AiChatResponse {
   plan?: AnalysisPlan;
   text?: string;
   domAction?: DomAction;
+}
+
+export interface UnpivotPlan {
+    indexColumns: string[];
+    valueColumns: string[];
+    variableColumnName: string;
+    valueColumnName: string;
+}
+
+export interface DataStructureAnalysis {
+    format: 'tidy' | 'crosstab';
+    unpivotPlan?: UnpivotPlan;
+}
+
+export interface CleaningRule {
+    column: string;
+    contains?: string;
+    equals?: string;
+    startsWith?: string;
+}
+
+export interface CleaningPlan {
+    excludeRows: CleaningRule[];
+}
+
+// For Session History
+export interface Report {
+    id: string;
+    filename: string;
+    createdAt: Date;
+    updatedAt: Date;
+    appState: AppState;
+}
+
+export interface ReportListItem {
+    id: string;
+    filename: string;
+    createdAt: Date;
+    updatedAt: Date;
 }

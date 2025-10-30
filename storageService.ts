@@ -1,16 +1,15 @@
-
 import { openDB, DBSchema, IDBPDatabase } from 'idb';
-import { AppState, Settings } from './types';
+import { AppState, Settings, Report, ReportListItem } from './types';
 
 const DB_NAME = 'csv-ai-assistant-db';
-const STORE_NAME = 'sessions';
-const SESSION_KEY = 'current-session';
+const REPORTS_STORE_NAME = 'reports';
 const SETTINGS_KEY = 'csv-ai-assistant-settings';
 
 interface MyDB extends DBSchema {
-  [STORE_NAME]: {
+  [REPORTS_STORE_NAME]: {
     key: string;
-    value: AppState;
+    value: Report;
+    indexes: { 'updatedAt': Date };
   };
 }
 
@@ -18,43 +17,69 @@ let dbPromise: Promise<IDBPDatabase<MyDB>>;
 
 const getDb = (): Promise<IDBPDatabase<MyDB>> => {
   if (!dbPromise) {
-    dbPromise = openDB<MyDB>(DB_NAME, 1, {
-      upgrade(db) {
-        db.createObjectStore(STORE_NAME);
+    dbPromise = openDB<MyDB>(DB_NAME, 2, { // Version bumped to 2 for new index
+      upgrade(db, oldVersion) {
+        if (oldVersion < 1) {
+            // Deprecated store, can be removed in a future version
+            db.createObjectStore('sessions');
+        }
+        if (oldVersion < 2) {
+            if (!db.objectStoreNames.contains(REPORTS_STORE_NAME)) {
+                const store = db.createObjectStore(REPORTS_STORE_NAME, { keyPath: 'id' });
+                store.createIndex('updatedAt', 'updatedAt');
+            }
+        }
       },
     });
   }
   return dbPromise;
 };
 
-export const saveSession = async (state: AppState): Promise<void> => {
+// Report History Management
+export const saveReport = async (report: Report): Promise<void> => {
   try {
     const db = await getDb();
-    await db.put(STORE_NAME, state, SESSION_KEY);
+    await db.put(REPORTS_STORE_NAME, report);
   } catch (error) {
-    console.error('Failed to save session to IndexedDB:', error);
+    console.error('Failed to save report to IndexedDB:', error);
   }
 };
 
-export const getSession = async (): Promise<AppState | undefined> => {
+export const getReport = async (id: string): Promise<Report | undefined> => {
   try {
     const db = await getDb();
-    return await db.get(STORE_NAME, SESSION_KEY);
+    return await db.get(REPORTS_STORE_NAME, id);
   } catch (error) {
-    console.error('Failed to get session from IndexedDB:', error);
+    console.error('Failed to get report from IndexedDB:', error);
     return undefined;
   }
 };
 
-export const clearSession = async (): Promise<void> => {
-  try {
-    const db = await getDb();
-    await db.delete(STORE_NAME, SESSION_KEY);
-  } catch (error) {
-    console.error('Failed to clear session from IndexedDB:', error);
-  }
+export const getReportsList = async (): Promise<ReportListItem[]> => {
+    try {
+        const db = await getDb();
+        const allReports = await db.getAllFromIndex(REPORTS_STORE_NAME, 'updatedAt');
+        // Sort descending (newest first) and map to lighter ListItem
+        return allReports
+            .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
+            .map(({ id, filename, createdAt, updatedAt }) => ({ id, filename, createdAt, updatedAt }));
+    } catch (error) {
+        console.error('Failed to get reports list from IndexedDB:', error);
+        return [];
+    }
+}
+
+export const deleteReport = async (id: string): Promise<void> => {
+    try {
+        const db = await getDb();
+        await db.delete(REPORTS_STORE_NAME, id);
+    } catch (error) {
+        console.error('Failed to delete report from IndexedDB:', error);
+    }
 };
 
+
+// Settings Management
 const defaultSettings: Settings = {
     apiKey: '',
     model: 'gemini-2.5-flash',
@@ -73,7 +98,6 @@ export const getSettings = (): Settings => {
     try {
         const settingsJson = localStorage.getItem(SETTINGS_KEY);
         if (settingsJson) {
-            // Merge saved settings with defaults to ensure all keys are present
             return { ...defaultSettings, ...JSON.parse(settingsJson) };
         }
     } catch (error) {

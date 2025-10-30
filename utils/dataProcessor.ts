@@ -1,5 +1,4 @@
-
-import { CsvData, CsvRow, AnalysisPlan, ColumnProfile, AggregationType } from '../types';
+import { CsvData, CsvRow, AnalysisPlan, ColumnProfile, AggregationType, UnpivotPlan, CleaningPlan, CleaningRule } from '../types';
 
 declare const Papa: any;
 
@@ -11,21 +10,38 @@ const sanitizeValue = (value: string): string => {
     return value;
 };
 
-/**
- * A more robust numeric parser that handles common formats like currency and commas.
- * It returns a number if successful, or null if parsing fails.
- */
 const parseNumericValue = (value: any): number | null => {
     if (value === null || value === undefined || String(value).trim() === '') {
         return null;
     }
-    // Convert to string, remove common currency symbols, commas, and trailing %
     const cleanedString = String(value)
         .replace(/[$€,]/g, '')
         .trim();
     
     const num = Number(cleanedString);
     return isNaN(num) ? null : num;
+};
+
+export const applyTopNWithOthers = (data: CsvData, groupByKey: string, valueKey: string, topN: number): CsvData => {
+    if (data.length <= topN) {
+        return data;
+    }
+
+    const sortedData = [...data].sort((a, b) => (Number(b[valueKey]) || 0) - (Number(a[valueKey]) || 0));
+    
+    const topData = sortedData.slice(0, topN -1);
+    const otherData = sortedData.slice(topN -1);
+
+    if (otherData.length > 0) {
+        const otherSum = otherData.reduce((acc, row) => acc + (Number(row[valueKey]) || 0), 0);
+        const othersRow: CsvRow = {
+            [groupByKey]: 'Others',
+            [valueKey]: otherSum,
+        };
+        return [...topData, othersRow];
+    }
+    
+    return topData;
 };
 
 
@@ -94,6 +110,48 @@ export const profileData = (data: CsvData): ColumnProfile[] => {
     return profiles;
 };
 
+export const unpivotData = (data: CsvData, plan: UnpivotPlan): CsvData => {
+    const { indexColumns, valueColumns, variableColumnName, valueColumnName } = plan;
+    const reshapedData: CsvData = [];
+
+    data.forEach(row => {
+        const baseObject: CsvRow = {};
+        indexColumns.forEach(col => {
+            baseObject[col] = row[col];
+        });
+
+        valueColumns.forEach(valueCol => {
+            if (row.hasOwnProperty(valueCol)) {
+                const newRow = { ...baseObject };
+                newRow[variableColumnName] = valueCol;
+                newRow[valueColumnName] = row[valueCol];
+                reshapedData.push(newRow);
+            }
+        });
+    });
+
+    return reshapedData;
+};
+
+export const cleanData = (data: CsvData, plan: CleaningPlan): CsvData => {
+    const { excludeRows } = plan;
+    if (excludeRows.length === 0) return data;
+
+    return data.filter(row => {
+        for (const rule of excludeRows) {
+            const cellValue = row[rule.column];
+            if (cellValue === undefined || cellValue === null) continue;
+
+            const cellValueStr = String(cellValue).trim().toLowerCase();
+            
+            if (rule.contains && cellValueStr.includes(rule.contains.toLowerCase())) return false; // Exclude if it matches
+            if (rule.equals && cellValueStr === rule.equals.toLowerCase()) return false;
+            if (rule.startsWith && cellValueStr.startsWith(rule.startsWith.toLowerCase())) return false;
+        }
+        return true; // Keep if no rules match
+    });
+};
+
 export const executePlan = (data: CsvData, plan: AnalysisPlan): CsvData => {
     const { groupByColumn, valueColumn, aggregation } = plan;
 
@@ -133,7 +191,7 @@ export const executePlan = (data: CsvData, plan: AnalysisPlan): CsvData => {
                 break;
             case 'avg':
                 const sum = values.reduce((acc, val) => acc + val, 0);
-                resultValue = sum / (values.length || 1);
+                resultValue = values.length > 0 ? sum / values.length : 0;
                 break;
             default:
                 throw new Error(`Unsupported aggregation type: ${aggregation}`);
