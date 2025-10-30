@@ -26,6 +26,8 @@ export interface AnalysisCardData {
     plan: AnalysisPlan;
     aggregatedData: CsvData;
     summary: string;
+    displayChartType: ChartType; // The currently displayed chart type
+    isDataVisible: boolean;      // Whether the data table is shown
 }
 
 export interface ProgressMessage {
@@ -40,6 +42,12 @@ export interface ChatMessage {
     timestamp: Date;
 }
 
+export interface Settings {
+    apiKey: string;
+    model: 'gemini-2.5-flash' | 'gemini-2.5-pro';
+    language: 'English' | 'Mandarin' | 'Spanish' | 'Japanese' | 'French';
+}
+
 export interface AppState {
     isBusy: boolean;
     useCloudAI: boolean;
@@ -49,4 +57,16 @@ export interface AppState {
     analysisCards: AnalysisCardData[];
     chatHistory: ChatMessage[];
     finalSummary: string | null;
+}
+
+export interface DomAction {
+    toolName: 'highlightCard' | 'changeCardChartType' | 'showCardData';
+    args: { [key: string]: any };
+}
+
+export interface AiChatResponse {
+  responseType: 'plan_creation' | 'text_response' | 'dom_action';
+  plan?: AnalysisPlan;
+  text?: string;
+  domAction?: DomAction;
 }

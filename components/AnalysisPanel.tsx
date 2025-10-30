@@ -1,5 +1,5 @@
 import React from 'react';
-import { AnalysisCardData } from '../types';
+import { AnalysisCardData, ChartType } from '../types';
 import { AnalysisCard } from './AnalysisCard';
 import { FinalSummary } from './FinalSummary';
 
@@ -7,9 +7,11 @@ import { FinalSummary } from './FinalSummary';
 interface AnalysisPanelProps {
     cards: AnalysisCardData[];
     finalSummary: string | null;
+    onChartTypeChange: (cardId: string, newType: ChartType) => void;
+    onToggleDataVisibility: (cardId: string) => void;
 }
 
-export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({ cards, finalSummary }) => {
+export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({ cards, finalSummary, onChartTypeChange, onToggleDataVisibility }) => {
     if (cards.length === 0) {
         return (
             <div className="flex items-center justify-center h-64 border-2 border-dashed border-gray-600 rounded-lg">
@@ -23,7 +25,12 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({ cards, finalSummar
             {finalSummary && <FinalSummary summary={finalSummary} />}
             <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-6 mt-6">
                 {cards.map((card) => (
-                    <AnalysisCard key={card.id} cardData={card} />
+                    <AnalysisCard 
+                        key={card.id} 
+                        cardData={card} 
+                        onChartTypeChange={onChartTypeChange}
+                        onToggleDataVisibility={onToggleDataVisibility}
+                    />
                 ))}
             </div>
         </div>
