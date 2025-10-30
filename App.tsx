@@ -155,7 +155,9 @@ const App: React.FC = () => {
                 };
                 newCards.push(newCard);
                 if (isMounted.current) {
-                    setAppState(prev => ({ ...prev, analysisCards: isChatRequest ? [...prev.analysisCards, newCard] : newCards }));
+                    // FIX: Append new card to the existing array to preserve the state of previous cards.
+                    // Do not replace the entire array on each iteration.
+                    setAppState(prev => ({ ...prev, analysisCards: [...prev.analysisCards, newCard] }));
                 }
                 addProgress(`Saved as View #${newCard.id.slice(-6)}`);
             } catch (error) {
@@ -181,15 +183,16 @@ const App: React.FC = () => {
         if (!isMounted.current) return;
 
         // Archive the current session using the current state BEFORE resetting it.
-        if (appState.csvData && appState.csvData.data.length > 0) {
+        const currentState = appState;
+        if (currentState.csvData && currentState.csvData.data.length > 0) {
             const archiveId = `report-${Date.now()}`;
             const existingSession = await getReport(CURRENT_SESSION_KEY);
             const sessionToArchive: Report = {
                 id: archiveId,
-                filename: appState.csvData.fileName,
+                filename: currentState.csvData.fileName,
                 createdAt: existingSession?.createdAt || new Date(),
                 updatedAt: new Date(),
-                appState: appState,
+                appState: currentState,
             };
             await saveReport(sessionToArchive);
             await deleteReport(CURRENT_SESSION_KEY);
