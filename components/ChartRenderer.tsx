@@ -11,7 +11,8 @@ interface ChartRendererProps {
     valueKey: string;
 }
 
-const COLORS = ['#0ea5e9', '#6366f1', '#a855f7', '#ec4899', '#f97316', '#eab308', '#10b981', '#ef4444'];
+// Updated color palette for better distinction and accessibility (Tableau 10)
+const COLORS = ['#4e79a7', '#f28e2c', '#e15759', '#76b7b2', '#59a14f', '#edc949', '#af7aa1', '#ff9da7', '#9c755f', '#bab0ab'];
 const BORDER_COLORS = COLORS.map(c => `${c}B3`);
 const BG_COLORS = COLORS.map(c => `${c}4D`);
 
