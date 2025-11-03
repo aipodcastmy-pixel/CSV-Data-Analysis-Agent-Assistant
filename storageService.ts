@@ -80,7 +80,9 @@ export const deleteReport = async (id: string): Promise<void> => {
 
 // Settings Management
 const defaultSettings: Settings = {
-    apiKey: '',
+    provider: 'google',
+    geminiApiKey: '',
+    openAIApiKey: '',
     model: 'gemini-2.5-pro',
     language: 'English'
 };
@@ -97,7 +99,13 @@ export const getSettings = (): Settings => {
     try {
         const settingsJson = localStorage.getItem(SETTINGS_KEY);
         if (settingsJson) {
-            return { ...defaultSettings, ...JSON.parse(settingsJson) };
+            const savedSettings = JSON.parse(settingsJson);
+            // Migration for old settings with 'apiKey'
+            if (savedSettings.apiKey && !savedSettings.geminiApiKey) {
+                savedSettings.geminiApiKey = savedSettings.apiKey;
+                delete savedSettings.apiKey;
+            }
+            return { ...defaultSettings, ...savedSettings };
         }
     } catch (error) {
         console.error('Failed to get settings from localStorage:', error);

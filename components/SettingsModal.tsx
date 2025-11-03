@@ -9,7 +9,9 @@ interface SettingsModalProps {
 }
 
 const languages: Settings['language'][] = ['English', 'Mandarin', 'Spanish', 'Japanese', 'French'];
-const models: Settings['model'][] = ['gemini-2.5-flash', 'gemini-2.5-pro'];
+const googleModels: (Settings['model'])[] = ['gemini-2.5-flash', 'gemini-2.5-pro'];
+const openAIModels: (Settings['model'])[] = ['gpt-4o', 'gpt-4-turbo'];
+
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, onSave, currentSettings }) => {
     const [settings, setSettings] = useState<Settings>(currentSettings);
@@ -32,6 +34,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
         setSettings(prev => ({ ...prev, [name]: value }));
     };
 
+    const handleProviderChange = (provider: 'google' | 'openai') => {
+        setSettings(prev => {
+            const currentModelIsGoogle = googleModels.includes(prev.model as any);
+            const currentModelIsOpenAI = openAIModels.includes(prev.model as any);
+            
+            let newModel = prev.model;
+            if (provider === 'google' && !currentModelIsGoogle) {
+                newModel = 'gemini-2.5-pro';
+            } else if (provider === 'openai' && !currentModelIsOpenAI) {
+                newModel = 'gpt-4o';
+            }
+
+            return { ...prev, provider, model: newModel as any };
+        });
+    };
+
+
     return (
         <div 
             className="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50"
@@ -41,26 +60,63 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
                 className="bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-md border border-gray-700"
                 onClick={e => e.stopPropagation()}
             >
-                <h2 className="text-2xl font-bold text-white mb-4">Settings</h2>
+                <h2 className="text-2xl font-bold text-white mb-6">Settings</h2>
                 
-                <div className="space-y-4">
-                    <div>
-                        <label htmlFor="apiKey" className="block text-sm font-medium text-gray-300">
-                            Gemini API Key
+                <div className="space-y-6">
+                     <div>
+                        <label className="block text-sm font-medium text-gray-300 mb-2">
+                            AI Provider
                         </label>
-                        <input
-                            type="password"
-                            id="apiKey"
-                            name="apiKey"
-                            value={settings.apiKey}
-                            onChange={handleInputChange}
-                            className="mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md py-2 px-3 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            placeholder="Enter your API key"
-                        />
-                        <p className="text-xs text-gray-500 mt-1">
-                            Get your key from <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">Google AI Studio</a>.
-                        </p>
+                        <div className="flex space-x-2 rounded-lg bg-gray-700 p-1">
+                            <button onClick={() => handleProviderChange('google')} className={`w-full rounded-md py-1.5 text-sm font-medium transition-colors ${settings.provider === 'google' ? 'bg-blue-600 text-white shadow' : 'text-gray-300 hover:bg-gray-600'}`}>
+                                Google Gemini
+                            </button>
+                            <button onClick={() => handleProviderChange('openai')} className={`w-full rounded-md py-1.5 text-sm font-medium transition-colors ${settings.provider === 'openai' ? 'bg-blue-600 text-white shadow' : 'text-gray-300 hover:bg-gray-600'}`}>
+                                OpenAI
+                            </button>
+                        </div>
                     </div>
+                    
+                    {settings.provider === 'google' && (
+                        <div>
+                            <label htmlFor="geminiApiKey" className="block text-sm font-medium text-gray-300">
+                                Gemini API Key
+                            </label>
+                            <input
+                                type="password"
+                                id="geminiApiKey"
+                                name="geminiApiKey"
+                                value={settings.geminiApiKey}
+                                onChange={handleInputChange}
+                                className="mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md py-2 px-3 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                placeholder="Enter your API key"
+                            />
+                            <p className="text-xs text-gray-500 mt-1">
+                                Get your key from <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">Google AI Studio</a>.
+                            </p>
+                        </div>
+                    )}
+                    
+                    {settings.provider === 'openai' && (
+                         <div>
+                            <label htmlFor="openAIApiKey" className="block text-sm font-medium text-gray-300">
+                                OpenAI API Key
+                            </label>
+                            <input
+                                type="password"
+                                id="openAIApiKey"
+                                name="openAIApiKey"
+                                value={settings.openAIApiKey}
+                                onChange={handleInputChange}
+                                className="mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md py-2 px-3 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                placeholder="Enter your API key (sk-...)"
+                            />
+                            <p className="text-xs text-gray-500 mt-1">
+                                Get your key from <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">OpenAI Platform</a>.
+                            </p>
+                        </div>
+                    )}
+
 
                     <div>
                         <label htmlFor="model" className="block text-sm font-medium text-gray-300">
@@ -73,12 +129,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
                             onChange={handleInputChange}
                             className="mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md py-2 px-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                         >
-                            {models.map(model => (
+                            {(settings.provider === 'google' ? googleModels : openAIModels).map(model => (
                                 <option key={model} value={model}>{model}</option>
                             ))}
                         </select>
                          <p className="text-xs text-gray-500 mt-1">
-                            `pro` is more powerful, `flash` is faster.
+                            {settings.provider === 'google' ? '`pro` is more powerful, `flash` is faster.' : '`gpt-4o` is the latest model.'}
                         </p>
                     </div>
 
@@ -103,7 +159,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
                     </div>
                 </div>
 
-                <div className="mt-6 flex justify-end space-x-3">
+                <div className="mt-8 flex justify-end space-x-3">
                     <button
                         onClick={onClose}
                         className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-500 transition-colors"

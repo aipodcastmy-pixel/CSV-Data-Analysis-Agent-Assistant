@@ -1,4 +1,4 @@
-// Fix: Import GenerateContentResponse to correctly type the API response.
+// This service now handles both Google Gemini and OpenAI models.
 import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
 import { AnalysisPlan, CsvData, ColumnProfile, AnalysisCardData, AiChatResponse, ChatMessage, Settings, DataPreparationPlan, CardContext, CsvRow, AppView } from '../types';
 import { executePlan } from "../utils/dataProcessor";
@@ -73,62 +73,108 @@ export const generateDataPreparationPlan = async (
     sampleData: CsvData['data'],
     settings: Settings
 ): Promise<DataPreparationPlan> => {
-    if (!settings.apiKey) return { explanation: "No transformation needed as API key is not set.", jsFunctionBody: null, outputColumns: columns };
     
     let lastError: Error | undefined;
 
     for(let i=0; i < 3; i++) { // Self-correction loop: 1 initial attempt + 2 retries
         try {
-            const ai = new GoogleGenAI({ apiKey: settings.apiKey });
-            
-            const prompt = `
-                You are an expert data engineer. Your task is to analyze a raw dataset and, if necessary, provide a JavaScript function to clean and reshape it into a tidy, analysis-ready format. CRITICALLY, you must also provide the schema of the NEW, transformed data.
-        
-                A tidy format has: 1. Each variable as a column. 2. Each observation as a row.
-        
-                Common problems to fix:
-                - **Summary Rows**: Filter out rows with 'Total', 'Subtotal'.
-                - **Crosstab/Wide Format**: Unpivot data where column headers are values (e.g., years, regions).
-                - **Multi-header Rows**: Skip initial junk rows.
-        
-                Dataset Columns (Initial Schema):
-                ${JSON.stringify(columns, null, 2)}
-        
-                Sample Data (up to 20 rows):
-                ${JSON.stringify(sampleData, null, 2)}
+            let jsonStr: string;
+
+            if (settings.provider === 'openai') {
+                if (!settings.openAIApiKey) return { explanation: "No transformation needed as API key is not set.", jsFunctionBody: null, outputColumns: columns };
+                const systemPrompt = `You are an expert data engineer. Your task is to analyze a raw dataset and, if necessary, provide a JavaScript function to clean and reshape it into a tidy, analysis-ready format. CRITICALLY, you must also provide the schema of the NEW, transformed data.
+A tidy format has: 1. Each variable as a column. 2. Each observation as a row.
+You MUST respond with a single valid JSON object, and nothing else. The JSON object must adhere to the provided schema.`;
+                const userPrompt = `Common problems to fix:
+- **Summary Rows**: Filter out rows with 'Total', 'Subtotal'.
+- **Crosstab/Wide Format**: Unpivot data where column headers are values (e.g., years, regions).
+- **Multi-header Rows**: Skip initial junk rows.
+Dataset Columns (Initial Schema):
+${JSON.stringify(columns, null, 2)}
+Sample Data (up to 20 rows):
+${JSON.stringify(sampleData, null, 2)}
+${lastError ? `On the previous attempt, your generated code failed with this error: "${lastError.message}". Please analyze the error and the data, then provide a corrected response.` : ''}
+Your task:
+1.  **Analyze**: Look at the initial schema and sample data.
+2.  **Plan Transformation**: Decide if cleaning or reshaping is needed.
+3.  **Define Output Schema**: Determine the exact column names and types ('numerical' or 'categorical') of the data AFTER your transformation. This is the MOST important step.
+4.  **Write Code**: If transformation is needed, write the body of a JavaScript function. This function receives one argument, \`data\`, and must return the transformed array of objects.
+5.  **Explain**: Provide a concise 'explanation' of what you did.
+**CRITICAL REQUIREMENTS:**
+- You MUST provide the \`outputColumns\` array. If you don't transform the data, \`outputColumns\` should be identical to the initial schema. If you do transform it, it must accurately reflect the new structure your code creates.
+- Your JavaScript code MUST include a \`return\` statement as its final operation.
+**Example: Reshaping a crosstab**
+- Initial Columns: [{'name': 'Product', 'type': 'categorical'}, {'name': 'Q1_Sales', 'type': 'numerical'}, {'name': 'Q2_Sales', 'type': 'numerical'}]
+- Explanation: "Reshaped the data from a wide format to a long format."
+- jsFunctionBody: "const r = []; data.forEach(row => { r.push({ Product: row.Product, Quarter: 'Q1', Sales: row.Q1_Sales }); r.push({ Product: row.Product, Quarter: 'Q2', Sales: row.Q2_Sales }); }); return r;"
+- outputColumns: [{'name': 'Product', 'type': 'categorical'}, {'name': 'Quarter', 'type': 'categorical'}, {'name': 'Sales', 'type': 'numerical'}]`;
                 
-                ${lastError ? `On the previous attempt, your generated code failed with this error: "${lastError.message}". Please analyze the error and the data, then provide a corrected response.` : ''}
+                const response = await withRetry(async () => {
+                    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${settings.openAIApiKey}`
+                        },
+                        body: JSON.stringify({
+                            model: settings.model,
+                            messages: [
+                                { role: 'system', content: systemPrompt },
+                                { role: 'user', content: userPrompt }
+                            ],
+                            response_format: { type: 'json_object' }
+                        })
+                    });
+                    if (!res.ok) {
+                        const errorData = await res.json();
+                        throw new Error(errorData.error?.message || `OpenAI API error: ${res.statusText}`);
+                    }
+                    return res.json();
+                });
+                jsonStr = response.choices[0].message.content;
 
-                Your task:
-                1.  **Analyze**: Look at the initial schema and sample data.
-                2.  **Plan Transformation**: Decide if cleaning or reshaping is needed.
-                3.  **Define Output Schema**: Determine the exact column names and types ('numerical' or 'categorical') of the data AFTER your transformation. This is the MOST important step.
-                4.  **Write Code**: If transformation is needed, write the body of a JavaScript function. This function receives one argument, \`data\`, and must return the transformed array of objects.
-                5.  **Explain**: Provide a concise 'explanation' of what you did.
-        
-                **CRITICAL REQUIREMENTS:**
-                - You MUST provide the \`outputColumns\` array. If you don't transform the data, \`outputColumns\` should be identical to the initial schema. If you do transform it, it must accurately reflect the new structure your code creates.
-                - Your JavaScript code MUST include a \`return\` statement as its final operation.
-        
-                **Example: Reshaping a crosstab**
-                - Initial Columns: [{'name': 'Product', 'type': 'categorical'}, {'name': 'Q1_Sales', 'type': 'numerical'}, {'name': 'Q2_Sales', 'type': 'numerical'}]
-                - Explanation: "Reshaped the data from a wide format to a long format."
-                - jsFunctionBody: "const r = []; data.forEach(row => { r.push({ Product: row.Product, Quarter: 'Q1', Sales: row.Q1_Sales }); r.push({ Product: row.Product, Quarter: 'Q2', Sales: row.Q2_Sales }); }); return r;"
-                - outputColumns: [{'name': 'Product', 'type': 'categorical'}, {'name': 'Quarter', 'type': 'categorical'}, {'name': 'Sales', 'type': 'numerical'}]
-
-                Your response must be a valid JSON object adhering to the provided schema.
-            `;
-        
-            const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
-                model: settings.model,
-                contents: prompt,
-                config: {
-                    responseMimeType: 'application/json',
-                    responseSchema: dataPreparationSchema,
-                },
-            }));
+            } else { // Google Gemini
+                if (!settings.geminiApiKey) return { explanation: "No transformation needed as API key is not set.", jsFunctionBody: null, outputColumns: columns };
+                const ai = new GoogleGenAI({ apiKey: settings.geminiApiKey });
+                const prompt = `
+                    You are an expert data engineer. Your task is to analyze a raw dataset and, if necessary, provide a JavaScript function to clean and reshape it into a tidy, analysis-ready format. CRITICALLY, you must also provide the schema of the NEW, transformed data.
+                    A tidy format has: 1. Each variable as a column. 2. Each observation as a row.
+                    Common problems to fix:
+                    - **Summary Rows**: Filter out rows with 'Total', 'Subtotal'.
+                    - **Crosstab/Wide Format**: Unpivot data where column headers are values (e.g., years, regions).
+                    - **Multi-header Rows**: Skip initial junk rows.
+                    Dataset Columns (Initial Schema):
+                    ${JSON.stringify(columns, null, 2)}
+                    Sample Data (up to 20 rows):
+                    ${JSON.stringify(sampleData, null, 2)}
+                    ${lastError ? `On the previous attempt, your generated code failed with this error: "${lastError.message}". Please analyze the error and the data, then provide a corrected response.` : ''}
+                    Your task:
+                    1.  **Analyze**: Look at the initial schema and sample data.
+                    2.  **Plan Transformation**: Decide if cleaning or reshaping is needed.
+                    3.  **Define Output Schema**: Determine the exact column names and types ('numerical' or 'categorical') of the data AFTER your transformation. This is the MOST important step.
+                    4.  **Write Code**: If transformation is needed, write the body of a JavaScript function. This function receives one argument, \`data\`, and must return the transformed array of objects.
+                    5.  **Explain**: Provide a concise 'explanation' of what you did.
+                    **CRITICAL REQUIREMENTS:**
+                    - You MUST provide the \`outputColumns\` array. If you don't transform the data, \`outputColumns\` should be identical to the initial schema. If you do transform it, it must accurately reflect the new structure your code creates.
+                    - Your JavaScript code MUST include a \`return\` statement as its final operation.
+                    **Example: Reshaping a crosstab**
+                    - Initial Columns: [{'name': 'Product', 'type': 'categorical'}, {'name': 'Q1_Sales', 'type': 'numerical'}, {'name': 'Q2_Sales', 'type': 'numerical'}]
+                    - Explanation: "Reshaped the data from a wide format to a long format."
+                    - jsFunctionBody: "const r = []; data.forEach(row => { r.push({ Product: row.Product, Quarter: 'Q1', Sales: row.Q1_Sales }); r.push({ Product: row.Product, Quarter: 'Q2', Sales: row.Q2_Sales }); }); return r;"
+                    - outputColumns: [{'name': 'Product', 'type': 'categorical'}, {'name': 'Quarter', 'type': 'categorical'}, {'name': 'Sales', 'type': 'numerical'}]
+                    Your response must be a valid JSON object adhering to the provided schema.
+                `;
+                const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
+                    model: settings.model as 'gemini-2.5-flash' | 'gemini-2.5-pro',
+                    contents: prompt,
+                    config: {
+                        responseMimeType: 'application/json',
+                        responseSchema: dataPreparationSchema,
+                    },
+                }));
+                jsonStr = response.text.trim();
+            }
             
-            const jsonStr = response.text.trim();
             const plan = JSON.parse(jsonStr) as DataPreparationPlan;
 
             // Test execution before returning
@@ -161,66 +207,110 @@ export const generateDataPreparationPlan = async (
     throw new Error(`AI failed to generate a valid data preparation plan after multiple attempts. Last error: ${lastError?.message}`);
 };
 
-// ... (rest of the file remains the same)
-// Fix: Import GenerateContentResponse to correctly type the API response.
-// ... (imports remain the same)
-
-// Helper function for the first step of the two-step plan generation process
 const generateCandidatePlans = async (
     columns: ColumnProfile[],
     sampleData: CsvRow[],
     settings: Settings,
     numPlans: number
 ): Promise<AnalysisPlan[]> => {
-    const ai = new GoogleGenAI({ apiKey: settings.apiKey });
     const categoricalCols = columns.filter(c => c.type === 'categorical').map(c => c.name);
     const numericalCols = columns.filter(c => c.type === 'numerical').map(c => c.name);
-    const prompt = `
-        You are a senior business intelligence analyst specializing in ERP and financial data. Your task is to generate a diverse list of insightful analysis plan candidates for a given dataset by identifying common data patterns.
-        
-        Dataset columns:
-        - Categorical: ${categoricalCols.join(', ')}
-        - Numerical: ${numericalCols.join(', ')}
-        
-        Sample Data (first 5 rows):
-        ${JSON.stringify(sampleData, null, 2)}
-        
-        Please generate up to ${numPlans} diverse analysis plans.
+    
+    let jsonStr: string;
 
-        **CRITICAL: Think like a Business/ERP Analyst.**
-        1.  **Identify Key Metrics**: First, find the columns that represent measurable values. Look for names like 'VALUE', 'AMOUNT', 'SALES', 'COST', 'QUANTITY', 'PRICE'. These are almost always the columns you should be aggregating (e.g., using 'sum' or 'avg').
-        2.  **Identify Dimensions**: Next, find columns that describe the data. Look for names ending in 'CODE', 'ID', 'TYPE', 'CATEGORY', or containing 'NAME', 'DESCRIPTION', 'PROJECT', 'REGION'. These are your primary grouping columns (dimensions).
-        3.  **Find Relationships**: Codes and descriptions often go together (e.g., 'PROJECT_CODE' and 'PROJECT_DESCRIPTION'). A very valuable analysis is to group by a description column (which is more human-readable for a chart) and sum a value column.
-        4.  **Prioritize High-Value Aggregations**: Focus on creating plans that answer common business questions like 'What are our top revenue sources?', 'Where are the biggest costs?', or 'How are items distributed across categories?'. A simple 'count' is less valuable than a 'sum' of a 'VALUE' or 'AMOUNT' column.
+    if (settings.provider === 'openai') {
+        const systemPrompt = `You are a senior business intelligence analyst specializing in ERP and financial data. Your task is to generate a diverse list of insightful analysis plan candidates for a given dataset by identifying common data patterns.
+You MUST respond with a single valid JSON array of plan objects, and nothing else. The JSON object must adhere to the provided schema.`;
+        const userPrompt = `Dataset columns:
+- Categorical: ${categoricalCols.join(', ')}
+- Numerical: ${numericalCols.join(', ')}
+Sample Data (first 5 rows):
+${JSON.stringify(sampleData, null, 2)}
+Please generate up to ${numPlans} diverse analysis plans.
+**CRITICAL: Think like a Business/ERP Analyst.**
+1.  **Identify Key Metrics**: First, find the columns that represent measurable values. Look for names like 'VALUE', 'AMOUNT', 'SALES', 'COST', 'QUANTITY', 'PRICE'. These are almost always the columns you should be aggregating (e.g., using 'sum' or 'avg').
+2.  **Identify Dimensions**: Next, find columns that describe the data. Look for names ending in 'CODE', 'ID', 'TYPE', 'CATEGORY', or containing 'NAME', 'DESCRIPTION', 'PROJECT', 'REGION'. These are your primary grouping columns (dimensions).
+3.  **Find Relationships**: Codes and descriptions often go together (e.g., 'PROJECT_CODE' and 'PROJECT_DESCRIPTION'). A very valuable analysis is to group by a description column (which is more human-readable for a chart) and sum a value column.
+4.  **Prioritize High-Value Aggregations**: Focus on creating plans that answer common business questions like 'What are our top revenue sources?', 'Where are the biggest costs?', or 'How are items distributed across categories?'. A simple 'count' is less valuable than a 'sum' of a 'VALUE' or 'AMOUNT' column.
+**Example Task**: Given columns ['CODE', 'DESCRIPTION', 'PROJECT_CODE', 'VALUE'], a HIGH-QUALITY plan would be:
+- Title: "Sum of VALUE by DESCRIPTION"
+- Aggregation: 'sum'
+- groupByColumn: 'DESCRIPTION'
+- valueColumn: 'VALUE'
+- Chart Type: 'bar'
+For each plan, choose the most appropriate chartType ('bar', 'line', 'pie', 'doughnut', 'scatter'). 
+- Use 'line' for time series trends.
+- Use 'bar' for most categorical comparisons, especially for "top X" style reports.
+- Use 'pie' or 'doughnut' for compositions with few categories.
+- Use 'scatter' to show the relationship between two numerical variables.
+Rules:
+- For 'scatter' plots, you MUST provide 'xValueColumn' and 'yValueColumn' (both numerical) and you MUST NOT provide 'aggregation' or 'groupByColumn'.
+- Do not create plans that are too granular (e.g., grouping by a unique ID column if there are thousands of them).`;
 
-        **Example Task**: Given columns ['CODE', 'DESCRIPTION', 'PROJECT_CODE', 'VALUE'], a HIGH-QUALITY plan would be:
-        - Title: "Sum of VALUE by DESCRIPTION"
-        - Aggregation: 'sum'
-        - groupByColumn: 'DESCRIPTION'
-        - valueColumn: 'VALUE'
-        - Chart Type: 'bar'
-        
-        For each plan, choose the most appropriate chartType ('bar', 'line', 'pie', 'doughnut', 'scatter'). 
-        - Use 'line' for time series trends.
-        - Use 'bar' for most categorical comparisons, especially for "top X" style reports.
-        - Use 'pie' or 'doughnut' for compositions with few categories.
-        - Use 'scatter' to show the relationship between two numerical variables.
-        
-        Rules:
-        - For 'scatter' plots, you MUST provide 'xValueColumn' and 'yValueColumn' (both numerical) and you MUST NOT provide 'aggregation' or 'groupByColumn'.
-        - Do not create plans that are too granular (e.g., grouping by a unique ID column if there are thousands of them).
-        
-        Your response must be a valid JSON array of plan objects. Do not include any other text or explanations.
-    `;
-    const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
-        model: settings.model,
-        contents: prompt,
-        config: {
-            responseMimeType: 'application/json',
-            responseSchema: planSchema,
-        },
-    }));
-    const jsonStr = response.text.trim();
+        const response = await withRetry(async () => {
+            const res = await fetch('https://api.openai.com/v1/chat/completions', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${settings.openAIApiKey}` },
+                body: JSON.stringify({
+                    model: settings.model,
+                    messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
+                    response_format: { type: 'json_object' }
+                })
+            });
+            if (!res.ok) {
+                const errorData = await res.json();
+                throw new Error(errorData.error?.message || `OpenAI API error: ${res.statusText}`);
+            }
+            return res.json();
+        });
+        // OpenAI may wrap the array in an object, e.g. {"plans": [...]}. We need to find the array.
+        const resultObject = JSON.parse(response.choices[0].message.content);
+        const arrayCandidate = Object.values(resultObject).find(v => Array.isArray(v));
+        if (!arrayCandidate) throw new Error("OpenAI response did not contain a JSON array of plans.");
+        jsonStr = JSON.stringify(arrayCandidate);
+    
+    } else { // Google Gemini
+        const ai = new GoogleGenAI({ apiKey: settings.geminiApiKey });
+        const prompt = `
+            You are a senior business intelligence analyst specializing in ERP and financial data. Your task is to generate a diverse list of insightful analysis plan candidates for a given dataset by identifying common data patterns.
+            Dataset columns:
+            - Categorical: ${categoricalCols.join(', ')}
+            - Numerical: ${numericalCols.join(', ')}
+            Sample Data (first 5 rows):
+            ${JSON.stringify(sampleData, null, 2)}
+            Please generate up to ${numPlans} diverse analysis plans.
+            **CRITICAL: Think like a Business/ERP Analyst.**
+            1.  **Identify Key Metrics**: First, find the columns that represent measurable values. Look for names like 'VALUE', 'AMOUNT', 'SALES', 'COST', 'QUANTITY', 'PRICE'. These are almost always the columns you should be aggregating (e.g., using 'sum' or 'avg').
+            2.  **Identify Dimensions**: Next, find columns that describe the data. Look for names ending in 'CODE', 'ID', 'TYPE', 'CATEGORY', or containing 'NAME', 'DESCRIPTION', 'PROJECT', 'REGION'. These are your primary grouping columns (dimensions).
+            3.  **Find Relationships**: Codes and descriptions often go together (e.g., 'PROJECT_CODE' and 'PROJECT_DESCRIPTION'). A very valuable analysis is to group by a description column (which is more human-readable for a chart) and sum a value column.
+            4.  **Prioritize High-Value Aggregations**: Focus on creating plans that answer common business questions like 'What are our top revenue sources?', 'Where are the biggest costs?', or 'How are items distributed across categories?'. A simple 'count' is less valuable than a 'sum' of a 'VALUE' or 'AMOUNT' column.
+            **Example Task**: Given columns ['CODE', 'DESCRIPTION', 'PROJECT_CODE', 'VALUE'], a HIGH-QUALITY plan would be:
+            - Title: "Sum of VALUE by DESCRIPTION"
+            - Aggregation: 'sum'
+            - groupByColumn: 'DESCRIPTION'
+            - valueColumn: 'VALUE'
+            - Chart Type: 'bar'
+            For each plan, choose the most appropriate chartType ('bar', 'line', 'pie', 'doughnut', 'scatter'). 
+            - Use 'line' for time series trends.
+            - Use 'bar' for most categorical comparisons, especially for "top X" style reports.
+            - Use 'pie' or 'doughnut' for compositions with few categories.
+            - Use 'scatter' to show the relationship between two numerical variables.
+            Rules:
+            - For 'scatter' plots, you MUST provide 'xValueColumn' and 'yValueColumn' (both numerical) and you MUST NOT provide 'aggregation' or 'groupByColumn'.
+            - Do not create plans that are too granular (e.g., grouping by a unique ID column if there are thousands of them).
+            Your response must be a valid JSON array of plan objects. Do not include any other text or explanations.
+        `;
+        const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
+            model: settings.model as 'gemini-2.5-flash' | 'gemini-2.5-pro',
+            contents: prompt,
+            config: {
+                responseMimeType: 'application/json',
+                responseSchema: planSchema,
+            },
+        }));
+        jsonStr = response.text.trim();
+    }
+
     const plans = JSON.parse(jsonStr) as AnalysisPlan[];
     return plans.filter((p: any) => p.chartType && p.title);
 };
@@ -230,33 +320,69 @@ const refineAndConfigurePlans = async (
     plansWithData: { plan: AnalysisPlan; aggregatedSample: CsvRow[] }[],
     settings: Settings
 ): Promise<AnalysisPlan[]> => {
-    const ai = new GoogleGenAI({ apiKey: settings.apiKey });
-    const prompt = `
-        You are a Quality Review Data Analyst. Your job is to review a list of proposed analysis plans and their data samples. Your goal is to select ONLY the most insightful and readable charts for the end-user, and configure them for the best default view.
+    let jsonStr: string;
 
-        **Review Criteria & Rules:**
-        1.  **Discard Low-Value Charts**: This is your most important task. You MUST discard any plan that is not genuinely insightful.
-            - **Example of a low-value chart**: A bar chart where all values are nearly identical (e.g., [77, 77, 77, 76, 78]). This shows uniformity but is not a useful visualization. DISCARD IT.
-            - **Example of another low-value chart**: A pie/doughnut chart where one category makes up over 95% of the total. This is not insightful. DISCARD IT.
-        2.  **Discard Unreadable Charts**: If a chart groups by a high-cardinality column resulting in too many categories to be readable (e.g., more than 50 tiny bars), discard it unless it's a clear time-series line chart.
-        3.  **Configure for Readability**: For good, insightful charts that have a moderate number of categories (e.g., 15 to 50), you MUST add default settings to make them readable. Set \`defaultTopN\` to 8 and \`defaultHideOthers\` to \`true\`.
-        4.  **Keep Good Charts**: If a chart is insightful and has a reasonable number of categories (e.g., under 15), keep it as is without adding default settings.
-        5.  **Return the Result**: Your final output must be an array of ONLY the good, configured plan objects. Do not include the discarded plans.
+    if(settings.provider === 'openai') {
+        const systemPrompt = `You are a Quality Review Data Analyst. Your job is to review a list of proposed analysis plans and their data samples. Your goal is to select ONLY the most insightful and readable charts for the end-user, and configure them for the best default view. Your final output must be an array of ONLY the good, configured plan objects. Do not include the discarded plans.
+You MUST respond with a single valid JSON array of plan objects, and nothing else. The JSON object must adhere to the provided schema.`;
+        const userPrompt = `**Review Criteria & Rules:**
+1.  **Discard Low-Value Charts**: This is your most important task. You MUST discard any plan that is not genuinely insightful.
+    - **Example of a low-value chart**: A bar chart where all values are nearly identical (e.g., [77, 77, 77, 76, 78]). This shows uniformity but is not a useful visualization. DISCARD IT.
+    - **Example of another low-value chart**: A pie/doughnut chart where one category makes up over 95% of the total. This is not insightful. DISCARD IT.
+2.  **Discard Unreadable Charts**: If a chart groups by a high-cardinality column resulting in too many categories to be readable (e.g., more than 50 tiny bars), discard it unless it's a clear time-series line chart.
+3.  **Configure for Readability**: For good, insightful charts that have a moderate number of categories (e.g., 15 to 50), you MUST add default settings to make them readable. Set \`defaultTopN\` to 8 and \`defaultHideOthers\` to \`true\`.
+4.  **Keep Good Charts**: If a chart is insightful and has a reasonable number of categories (e.g., under 15), keep it as is without adding default settings.
+**Proposed Plans and Data Samples:**
+${JSON.stringify(plansWithData, null, 2)}`;
+        
+        const response = await withRetry(async () => {
+            const res = await fetch('https://api.openai.com/v1/chat/completions', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${settings.openAIApiKey}` },
+                body: JSON.stringify({
+                    model: settings.model,
+                    messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
+                    response_format: { type: 'json_object' }
+                })
+            });
+            if (!res.ok) {
+                const errorData = await res.json();
+                throw new Error(errorData.error?.message || `OpenAI API error: ${res.statusText}`);
+            }
+            return res.json();
+        });
+        const resultObject = JSON.parse(response.choices[0].message.content);
+        const arrayCandidate = Object.values(resultObject).find(v => Array.isArray(v));
+        if (!arrayCandidate) throw new Error("OpenAI response did not contain a JSON array of plans.");
+        jsonStr = JSON.stringify(arrayCandidate);
 
-        **Proposed Plans and Data Samples:**
-        ${JSON.stringify(plansWithData, null, 2)}
-
-        Your response must be a valid JSON array of the refined and configured plan objects, adhering to the provided schema. Do not include any other text or explanations.
-    `;
-    const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
-        model: settings.model,
-        contents: prompt,
-        config: {
-            responseMimeType: 'application/json',
-            responseSchema: planSchema,
-        },
-    }));
-    const jsonStr = response.text.trim();
+    } else { // Google Gemini
+        const ai = new GoogleGenAI({ apiKey: settings.geminiApiKey });
+        const prompt = `
+            You are a Quality Review Data Analyst. Your job is to review a list of proposed analysis plans and their data samples. Your goal is to select ONLY the most insightful and readable charts for the end-user, and configure them for the best default view.
+            **Review Criteria & Rules:**
+            1.  **Discard Low-Value Charts**: This is your most important task. You MUST discard any plan that is not genuinely insightful.
+                - **Example of a low-value chart**: A bar chart where all values are nearly identical (e.g., [77, 77, 77, 76, 78]). This shows uniformity but is not a useful visualization. DISCARD IT.
+                - **Example of another low-value chart**: A pie/doughnut chart where one category makes up over 95% of the total. This is not insightful. DISCARD IT.
+            2.  **Discard Unreadable Charts**: If a chart groups by a high-cardinality column resulting in too many categories to be readable (e.g., more than 50 tiny bars), discard it unless it's a clear time-series line chart.
+            3.  **Configure for Readability**: For good, insightful charts that have a moderate number of categories (e.g., 15 to 50), you MUST add default settings to make them readable. Set \`defaultTopN\` to 8 and \`defaultHideOthers\` to \`true\`.
+            4.  **Keep Good Charts**: If a chart is insightful and has a reasonable number of categories (e.g., under 15), keep it as is without adding default settings.
+            5.  **Return the Result**: Your final output must be an array of ONLY the good, configured plan objects. Do not include the discarded plans.
+            **Proposed Plans and Data Samples:**
+            ${JSON.stringify(plansWithData, null, 2)}
+            Your response must be a valid JSON array of the refined and configured plan objects, adhering to the provided schema. Do not include any other text or explanations.
+        `;
+        const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
+            model: settings.model as 'gemini-2.5-flash' | 'gemini-2.5-pro',
+            contents: prompt,
+            config: {
+                responseMimeType: 'application/json',
+                responseSchema: planSchema,
+            },
+        }));
+        jsonStr = response.text.trim();
+    }
+    
     return JSON.parse(jsonStr) as AnalysisPlan[];
 };
 
@@ -266,7 +392,8 @@ export const generateAnalysisPlans = async (
     sampleData: CsvData['data'],
     settings: Settings
 ): Promise<AnalysisPlan[]> => {
-    if (!settings.apiKey) throw new Error("API Key not provided.");
+    const isApiKeySet = settings.provider === 'google' ? !!settings.geminiApiKey : !!settings.openAIApiKey;
+    if (!isApiKeySet) throw new Error("API Key not provided.");
 
     try {
         // Step 1: Generate a broad list of candidate plans
@@ -314,36 +441,60 @@ export const generateAnalysisPlans = async (
 
 
 export const generateSummary = async (title: string, data: CsvData['data'], settings: Settings): Promise<string> => {
-     if (!settings.apiKey) return 'AI Summaries are disabled. No API Key provided.';
+    const isApiKeySet = settings.provider === 'google' ? !!settings.geminiApiKey : !!settings.openAIApiKey;
+    if (!isApiKeySet) return 'AI Summaries are disabled. No API Key provided.';
     
-    const ai = new GoogleGenAI({ apiKey: settings.apiKey });
-
-    const languageInstruction = settings.language === 'Mandarin' 
-        ? `Provide a concise, insightful summary in two languages, separated by '---'.\nFormat: English Summary --- Mandarin Summary`
-        : `Provide a concise, insightful summary in ${settings.language}.`;
-
-
-    const prompt = `
-        You are a business intelligence analyst.
-        The following data is for a chart titled "${title}".
-        Data:
-        ${JSON.stringify(data.slice(0, 10), null, 2)} 
-        ${data.length > 10 ? `(...and ${data.length - 10} more rows)` : ''}
-
-        ${languageInstruction}
-
-        The summary should highlight key trends, outliers, or business implications. Do not just describe the data; interpret its meaning.
-        For example, instead of "Region A has 500 sales", say "Region A is the top performer, contributing the majority of sales, which suggests a strong market presence there."
-        Your response must be only the summary text in the specified format.
-    `;
-
     try {
-        // Fix: Explicitly type the response to avoid 'unknown' type on .text property.
-        const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
-            model: settings.model,
-            contents: prompt,
-        }));
-        return response.text;
+        if (settings.provider === 'openai') {
+            const languageInstruction = settings.language === 'Mandarin' 
+                ? `Provide a concise, insightful summary in two languages, separated by '---'.\nFormat: English Summary --- Mandarin Summary`
+                : `Provide a concise, insightful summary in ${settings.language}.`;
+            const systemPrompt = `You are a business intelligence analyst. Your response must be only the summary text in the specified format. The summary should highlight key trends, outliers, or business implications. Do not just describe the data; interpret its meaning. For example, instead of "Region A has 500 sales", say "Region A is the top performer, contributing the majority of sales, which suggests a strong market presence there."`;
+            const userPrompt = `The following data is for a chart titled "${title}".
+Data:
+${JSON.stringify(data.slice(0, 10), null, 2)} 
+${data.length > 10 ? `(...and ${data.length - 10} more rows)` : ''}
+${languageInstruction}`;
+
+            const response = await withRetry(async () => {
+                const res = await fetch('https://api.openai.com/v1/chat/completions', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${settings.openAIApiKey}` },
+                    body: JSON.stringify({
+                        model: settings.model,
+                        messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
+                    })
+                });
+                if (!res.ok) {
+                    const errorData = await res.json();
+                    throw new Error(errorData.error?.message || `OpenAI API error: ${res.statusText}`);
+                }
+                return res.json();
+            });
+            return response.choices[0].message.content;
+
+        } else { // Google Gemini
+            const ai = new GoogleGenAI({ apiKey: settings.geminiApiKey });
+            const languageInstruction = settings.language === 'Mandarin' 
+                ? `Provide a concise, insightful summary in two languages, separated by '---'.\nFormat: English Summary --- Mandarin Summary`
+                : `Provide a concise, insightful summary in ${settings.language}.`;
+            const prompt = `
+                You are a business intelligence analyst.
+                The following data is for a chart titled "${title}".
+                Data:
+                ${JSON.stringify(data.slice(0, 10), null, 2)} 
+                ${data.length > 10 ? `(...and ${data.length - 10} more rows)` : ''}
+                ${languageInstruction}
+                The summary should highlight key trends, outliers, or business implications. Do not just describe the data; interpret its meaning.
+                For example, instead of "Region A has 500 sales", say "Region A is the top performer, contributing the majority of sales, which suggests a strong market presence there."
+                Your response must be only the summary text in the specified format.
+            `;
+            const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
+                model: settings.model as 'gemini-2.5-flash' | 'gemini-2.5-pro',
+                contents: prompt,
+            }));
+            return response.text;
+        }
     } catch (error) {
         console.error("Error generating summary:", error);
         return "Failed to generate AI summary.";
@@ -352,32 +503,60 @@ export const generateSummary = async (title: string, data: CsvData['data'], sett
 
 // NEW: Function for the AI to create its core analysis summary (transparent thinking)
 export const generateCoreAnalysisSummary = async (cardContext: CardContext[], columns: ColumnProfile[], settings: Settings): Promise<string> => {
-    if (!settings.apiKey || cardContext.length === 0) return "Could not generate an initial analysis summary.";
+    const isApiKeySet = settings.provider === 'google' ? !!settings.geminiApiKey : !!settings.openAIApiKey;
+    if (!isApiKeySet || cardContext.length === 0) return "Could not generate an initial analysis summary.";
 
-    const ai = new GoogleGenAI({ apiKey: settings.apiKey });
-    const prompt = `
-        You are a senior data analyst. After performing an initial automated analysis of a dataset, your task is to create a concise "Core Analysis Briefing". This briefing will be shown to the user and will serve as the shared foundation of understanding for your conversation.
-
-        Based on the columns and the analysis cards you have just generated, summarize the dataset's primary characteristics.
-        
-        Your briefing should cover:
-        1.  **Primary Subject**: What is this data fundamentally about? (e.g., "This dataset appears to be about online sales transactions...")
-        2.  **Key Metrics**: What are the most important numerical columns? (e.g., "...where the key metrics are 'Sale_Amount' and 'Profit'.")
-        3.  **Core Dimensions**: What are the main categorical columns used for analysis? (e.g., "The data is primarily broken down by 'Region' and 'Product_Category'.")
-        4.  **Suggested Focus**: Based on the initial charts, what should be the focus of further analysis? (e.g., "Future analysis should focus on identifying the most profitable regions and product categories.")
-
-        **Available Information:**
-        - **Dataset Columns**: ${JSON.stringify(columns.map(c => c.name))}
-        - **Generated Analysis Cards**: ${JSON.stringify(cardContext, null, 2)}
-
-        Produce a single, concise paragraph in ${settings.language}. This is your initial assessment that you will share with your human counterpart.
-    `;
     try {
-        const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
-            model: settings.model,
-            contents: prompt,
-        }));
-        return response.text;
+        if (settings.provider === 'openai') {
+            const systemPrompt = `You are a senior data analyst. After performing an initial automated analysis of a dataset, your task is to create a concise "Core Analysis Briefing". This briefing will be shown to the user and will serve as the shared foundation of understanding for your conversation.
+Your briefing should cover:
+1.  **Primary Subject**: What is this data fundamentally about? (e.g., "This dataset appears to be about online sales transactions...")
+2.  **Key Metrics**: What are the most important numerical columns? (e.g., "...where the key metrics are 'Sale_Amount' and 'Profit'.")
+3.  **Core Dimensions**: What are the main categorical columns used for analysis? (e.g., "The data is primarily broken down by 'Region' and 'Product_Category'.")
+4.  **Suggested Focus**: Based on the initial charts, what should be the focus of further analysis? (e.g., "Future analysis should focus on identifying the most profitable regions and product categories.")
+Produce a single, concise paragraph in ${settings.language}. This is your initial assessment that you will share with your human counterpart.`;
+            const userPrompt = `**Available Information:**
+- **Dataset Columns**: ${JSON.stringify(columns.map(c => c.name))}
+- **Generated Analysis Cards**: ${JSON.stringify(cardContext, null, 2)}`;
+            
+            const response = await withRetry(async () => {
+                const res = await fetch('https://api.openai.com/v1/chat/completions', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${settings.openAIApiKey}` },
+                    body: JSON.stringify({
+                        model: settings.model,
+                        messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
+                    })
+                });
+                if (!res.ok) {
+                    const errorData = await res.json();
+                    throw new Error(errorData.error?.message || `OpenAI API error: ${res.statusText}`);
+                }
+                return res.json();
+            });
+            return response.choices[0].message.content;
+
+        } else { // Google Gemini
+            const ai = new GoogleGenAI({ apiKey: settings.geminiApiKey });
+            const prompt = `
+                You are a senior data analyst. After performing an initial automated analysis of a dataset, your task is to create a concise "Core Analysis Briefing". This briefing will be shown to the user and will serve as the shared foundation of understanding for your conversation.
+                Based on the columns and the analysis cards you have just generated, summarize the dataset's primary characteristics.
+                Your briefing should cover:
+                1.  **Primary Subject**: What is this data fundamentally about? (e.g., "This dataset appears to be about online sales transactions...")
+                2.  **Key Metrics**: What are the most important numerical columns? (e.g., "...where the key metrics are 'Sale_Amount' and 'Profit'.")
+                3.  **Core Dimensions**: What are the main categorical columns used for analysis? (e.g., "The data is primarily broken down by 'Region' and 'Product_Category'.")
+                4.  **Suggested Focus**: Based on the initial charts, what should be the focus of further analysis? (e.g., "Future analysis should focus on identifying the most profitable regions and product categories.")
+                **Available Information:**
+                - **Dataset Columns**: ${JSON.stringify(columns.map(c => c.name))}
+                - **Generated Analysis Cards**: ${JSON.stringify(cardContext, null, 2)}
+                Produce a single, concise paragraph in ${settings.language}. This is your initial assessment that you will share with your human counterpart.
+            `;
+            const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
+                model: settings.model as 'gemini-2.5-flash' | 'gemini-2.5-pro',
+                contents: prompt,
+            }));
+            return response.text;
+        }
     } catch (error) {
         console.error("Error generating core analysis summary:", error);
         return "An error occurred while the AI was forming its initial analysis.";
@@ -386,35 +565,59 @@ export const generateCoreAnalysisSummary = async (cardContext: CardContext[], co
 
 
 export const generateFinalSummary = async (cards: AnalysisCardData[], settings: Settings): Promise<string> => {
-    if (!settings.apiKey) return 'AI Summaries are disabled. No API Key provided.';
-
-    const ai = new GoogleGenAI({ apiKey: settings.apiKey });
+    const isApiKeySet = settings.provider === 'google' ? !!settings.geminiApiKey : !!settings.openAIApiKey;
+    if (!isApiKeySet) return 'AI Summaries are disabled. No API Key provided.';
 
     const summaries = cards.map(card => {
         const summaryText = card.summary.split('---')[0]; // Prioritize the first language part of the summary
         return `Chart Title: ${card.plan.title}\nSummary: ${summaryText}`;
     }).join('\n\n');
-
-    const prompt = `
-        You are a senior business strategist. You have been provided with several automated data analyses.
-        Your task is to synthesize these individual findings into a single, high-level executive summary in ${settings.language}.
-
-        Here are the individual analysis summaries (they are in English):
-        ${summaries}
-
-        Please provide a concise, overarching summary that connects the dots between these analyses. 
-        Identify the most critical business insights, potential opportunities, or risks revealed by the data as a whole.
-        Do not just repeat the individual summaries. Create a new, synthesized narrative.
-        Your response should be a single paragraph of insightful business analysis.
-    `;
-
+    
     try {
-        // Fix: Explicitly type the response to avoid 'unknown' type on .text property.
-        const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
-            model: settings.model === 'gemini-2.5-pro' ? 'gemini-2.5-pro' : 'gemini-2.5-flash',
-            contents: prompt,
-        }));
-        return response.text;
+        if (settings.provider === 'openai') {
+            const systemPrompt = `You are a senior business strategist. You have been provided with several automated data analyses.
+Your task is to synthesize these individual findings into a single, high-level executive summary in ${settings.language}.
+Please provide a concise, overarching summary that connects the dots between these analyses. 
+Identify the most critical business insights, potential opportunities, or risks revealed by the data as a whole.
+Do not just repeat the individual summaries. Create a new, synthesized narrative.
+Your response should be a single paragraph of insightful business analysis.`;
+            const userPrompt = `Here are the individual analysis summaries (they are in English):
+${summaries}`;
+            const response = await withRetry(async () => {
+                const res = await fetch('https://api.openai.com/v1/chat/completions', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${settings.openAIApiKey}` },
+                    body: JSON.stringify({
+                        model: settings.model,
+                        messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
+                    })
+                });
+                if (!res.ok) {
+                    const errorData = await res.json();
+                    throw new Error(errorData.error?.message || `OpenAI API error: ${res.statusText}`);
+                }
+                return res.json();
+            });
+            return response.choices[0].message.content;
+
+        } else { // Google Gemini
+            const ai = new GoogleGenAI({ apiKey: settings.geminiApiKey });
+            const prompt = `
+                You are a senior business strategist. You have been provided with several automated data analyses.
+                Your task is to synthesize these individual findings into a single, high-level executive summary in ${settings.language}.
+                Here are the individual analysis summaries (they are in English):
+                ${summaries}
+                Please provide a concise, overarching summary that connects the dots between these analyses. 
+                Identify the most critical business insights, potential opportunities, or risks revealed by the data as a whole.
+                Do not just repeat the individual summaries. Create a new, synthesized narrative.
+                Your response should be a single paragraph of insightful business analysis.
+            `;
+            const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
+                model: settings.model as 'gemini-2.5-flash' | 'gemini-2.5-pro',
+                contents: prompt,
+            }));
+            return response.text;
+        }
     } catch (error) {
         console.error("Error generating final summary:", error);
         return "Failed to generate the final AI summary.";
@@ -503,87 +706,137 @@ export const generateChatResponse = async (
     currentView: AppView,
     rawDataSample: CsvRow[]
 ): Promise<AiChatResponse> => {
-    if (!settings.apiKey) {
+    const isApiKeySet = settings.provider === 'google' ? !!settings.geminiApiKey : !!settings.openAIApiKey;
+    if (!isApiKeySet) {
         return { actions: [{ responseType: 'text_response', text: 'Cloud AI is disabled. API Key not provided.' }] };
     }
-
-    const ai = new GoogleGenAI({ apiKey: settings.apiKey });
 
     const categoricalCols = columns.filter(c => c.type === 'categorical').map(c => c.name);
     const numericalCols = columns.filter(c => c.type === 'numerical').map(c => c.name);
     const history = chatHistory.map(m => `${m.sender}: ${m.text}`).join('\n');
-
-    const prompt = `
-        You are an expert data analyst and business strategist. Your task is to respond to the user by providing insightful analysis and breaking down your response into a sequence of actions. Your responses should be in ${settings.language}. The user is in a unified dashboard where they can see both the analysis charts and the raw data spreadsheet at all times.
-
-        **CORE ANALYSIS BRIEFING (Your Memory):**
-        This is your core understanding of the dataset, which you must use to guide all your responses.
-        ---
-        ${aiCoreAnalysisSummary || "No core analysis has been performed yet. This is your first look at the data."}
-        ---
-
-        **Guiding Principles & Common Sense:**
-        1.  **Synthesize and Interpret**: Do not simply state what a chart shows. Connect insights between cards using your Core Analysis Briefing as a guide. Explain the business implications—the "so what?".
-        2.  **Understand Intent & Sanity-Check**: Grasp the user's underlying goal. If they ask for something that doesn't make sense with the data (e.g., "show profit" when no profit column exists), gently explain why it's not possible and suggest an alternative.
-        3.  **Be Proactive**: Identify and highlight key trends, significant outliers, or interesting patterns. Frame findings as actionable business insights.
-        4.  **Use Business Language**: Talk about performance, trends, contribution, outliers, and potential impact.
-
-        **Your Knowledge Base (Real-time Info):**
-        - **Dataset Columns**:
-            - Categorical: ${categoricalCols.join(', ')}
-            - Numerical: ${numericalCols.join(', ')}
-        - **Analysis Cards on Screen**:
-            ${cardContext.length > 0 ? JSON.stringify(cardContext, null, 2) : "No cards yet."}
-            (Use the aggregatedDataSample to answer questions about a card's content).
-        - **Raw Data Sample (first 20 rows for context):**
-            ${rawDataSample.length > 0 ? JSON.stringify(rawDataSample, null, 2) : "No raw data available."}
-            (Use this sample to verify specific details or answer questions about individual rows. Do not assume it is the complete dataset.)
-
-        **Conversation history:**
-        ${history}
-
-        **The user's latest message is:** "${userPrompt}"
-
-        **Your Available Actions & Tools:**
-        You MUST respond by creating a sequence of one or more actions.
-        1.  **text_response**: For conversation. If your text explains a specific card, you MUST include its 'cardId'.
-        2.  **plan_creation**: To create a NEW chart. If creating a bar/pie/doughnut chart with a \`groupByColumn\` that has many categories, you should set a \`defaultTopN\` of 8 and \`defaultHideOthers\` to \`true\` to ensure the chart is readable.
-        3.  **dom_action**: To INTERACT with an EXISTING card. Available tools:
-            - **highlightCard**: Scrolls to and highlights a card. Args: \`{ "cardId": "..." }\`.
-            - **changeCardChartType**: Changes a card's chart. Args: \`{ "cardId": "...", "newType": "..." }\`.
-            - **showCardData**: Shows/hides a card's data table. Args: \`{ "cardId": "...", "visible": boolean }\`.
-            - **filterCard**: Applies a filter to a card. Use this to show a subset of data. Args: \`{ "cardId": "...", "column": "...", "values": ["..."] }\`. To clear a filter, send an empty values array.
-        4.  **execute_js_code**: For COMPLEX TASKS that aggregations cannot handle, like creating new derived columns or cleaning data. You can use this tool AT ANY TIME.
-            - **IMPORTANT**: When you use this tool, the ENTIRE dataset is updated, and all charts on the screen will automatically regenerate to reflect the changes. You should inform the user of this.
-            - **Use Case**: User says "Create a 'Cost per Transaction' column" or "Remove all rows for the USA".
-            - **Your Action**: Generate an 'execute_js_code' action. The \`jsFunctionBody\` should be a string of JS code, like \`return data.map(row => ({ ...row, 'Cost per Transaction': row['Total Spend'] / row['Transactions'] }));\`
-            - The function you write will receive the entire dataset as an array of objects called \`data\` and MUST return the transformed array.
-        5.  **proceed_to_analysis**: This action is DEPRECATED and should not be used. The analysis runs automatically. If the user asks to proceed, just confirm that the analysis is already done.
-
-        **Decision-Making Process:**
-        - THINK STEP-BY-STEP. A single user request might require multiple actions.
-        - **Multi-step example**: If user says "On the sales card, show me only Marketing and Engineering, and explain the result", you might return THREE actions:
-            1. A 'dom_action' to 'filterCard' for the correct cardId, column, and values.
-            2. A 'text_response' action that says something like "I've filtered the card for you."
-            3. A 'text_response' action with the explanation of the filtered data, including the 'cardId'.
-        - If the user asks to modify the data (e.g., "delete rows", "create a column"), use 'execute_js_code'. You should always accompany this with a 'text_response' to confirm what you've done, e.g., "I've removed those rows and updated all the charts for you."
-        - Always be conversational. Use 'text_response' actions to acknowledge the user and explain what you are doing.
-
-        Your output MUST be a single JSON object with an "actions" key containing an array of action objects.
-    `;
-
+    
     try {
-        // Fix: Explicitly type the response to avoid 'unknown' type on .text property.
-        const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
-            model: settings.model,
-            contents: prompt,
-            config: {
-                responseMimeType: 'application/json',
-                responseSchema: multiActionChatResponseSchema,
-            },
-        }));
+        let jsonStr: string;
 
-        const jsonStr = response.text.trim();
+        if (settings.provider === 'openai') {
+            const systemPrompt = `You are an expert data analyst and business strategist. Your task is to respond to the user by providing insightful analysis and breaking down your response into a sequence of actions. Your responses should be in ${settings.language}. The user is in a unified dashboard where they can see both the analysis charts and the raw data spreadsheet at all times.
+You MUST respond by creating a sequence of one or more actions.
+Your output MUST be a single JSON object with an "actions" key containing an array of action objects.`;
+            const userPromptWithContext = `**CORE ANALYSIS BRIEFING (Your Memory):**
+This is your core understanding of the dataset, which you must use to guide all your responses.
+---
+${aiCoreAnalysisSummary || "No core analysis has been performed yet. This is your first look at the data."}
+---
+**Guiding Principles & Common Sense:**
+1.  **Synthesize and Interpret**: Do not simply state what a chart shows. Connect insights between cards using your Core Analysis Briefing as a guide. Explain the business implications—the "so what?".
+2.  **Understand Intent & Sanity-Check**: Grasp the user's underlying goal. If they ask for something that doesn't make sense with the data (e.g., "show profit" when no profit column exists), gently explain why it's not possible and suggest an alternative.
+3.  **Be Proactive**: Identify and highlight key trends, significant outliers, or interesting patterns. Frame findings as actionable business insights.
+4.  **Use Business Language**: Talk about performance, trends, contribution, outliers, and potential impact.
+**Your Knowledge Base (Real-time Info):**
+- **Dataset Columns**:
+    - Categorical: ${categoricalCols.join(', ')}
+    - Numerical: ${numericalCols.join(', ')}
+- **Analysis Cards on Screen**:
+    ${cardContext.length > 0 ? JSON.stringify(cardContext, null, 2) : "No cards yet."}
+    (Use the aggregatedDataSample to answer questions about a card's content).
+- **Raw Data Sample (first 20 rows for context):**
+    ${rawDataSample.length > 0 ? JSON.stringify(rawDataSample, null, 2) : "No raw data available."}
+    (Use this sample to verify specific details or answer questions about individual rows. Do not assume it is the complete dataset.)
+**Conversation history:**
+${history}
+**The user's latest message is:** "${userPrompt}"
+**Your Available Actions & Tools:**
+1.  **text_response**: For conversation. If your text explains a specific card, you MUST include its 'cardId'.
+2.  **plan_creation**: To create a NEW chart. If creating a bar/pie/doughnut chart with a \`groupByColumn\` that has many categories, you should set a \`defaultTopN\` of 8 and \`defaultHideOthers\` to \`true\` to ensure the chart is readable.
+3.  **dom_action**: To INTERACT with an EXISTING card. Available tools: 'highlightCard', 'changeCardChartType', 'showCardData', 'filterCard'.
+4.  **execute_js_code**: For COMPLEX TASKS that aggregations cannot handle, like creating new derived columns or cleaning data. You can use this tool AT ANY TIME.
+5.  **proceed_to_analysis**: DEPRECATED.
+**Decision-Making Process:**
+- THINK STEP-BY-STEP. A single user request might require multiple actions.
+- If the user asks to modify the data (e.g., "delete rows", "create a column"), use 'execute_js_code'. You should always accompany this with a 'text_response' to confirm what you've done.
+- Always be conversational. Use 'text_response' actions to acknowledge the user and explain what you are doing.`;
+            
+            const response = await withRetry(async () => {
+                const res = await fetch('https://api.openai.com/v1/chat/completions', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${settings.openAIApiKey}` },
+                    body: JSON.stringify({
+                        model: settings.model,
+                        messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPromptWithContext }],
+                        response_format: { type: 'json_object' }
+                    })
+                });
+                if (!res.ok) {
+                    const errorData = await res.json();
+                    throw new Error(errorData.error?.message || `OpenAI API error: ${res.statusText}`);
+                }
+                return res.json();
+            });
+            jsonStr = response.choices[0].message.content;
+
+        } else { // Google Gemini
+            const ai = new GoogleGenAI({ apiKey: settings.geminiApiKey });
+            const prompt = `
+                You are an expert data analyst and business strategist. Your task is to respond to the user by providing insightful analysis and breaking down your response into a sequence of actions. Your responses should be in ${settings.language}. The user is in a unified dashboard where they can see both the analysis charts and the raw data spreadsheet at all times.
+                **CORE ANALYSIS BRIEFING (Your Memory):**
+                This is your core understanding of the dataset, which you must use to guide all your responses.
+                ---
+                ${aiCoreAnalysisSummary || "No core analysis has been performed yet. This is your first look at the data."}
+                ---
+                **Guiding Principles & Common Sense:**
+                1.  **Synthesize and Interpret**: Do not simply state what a chart shows. Connect insights between cards using your Core Analysis Briefing as a guide. Explain the business implications—the "so what?".
+                2.  **Understand Intent & Sanity-Check**: Grasp the user's underlying goal. If they ask for something that doesn't make sense with the data (e.g., "show profit" when no profit column exists), gently explain why it's not possible and suggest an alternative.
+                3.  **Be Proactive**: Identify and highlight key trends, significant outliers, or interesting patterns. Frame findings as actionable business insights.
+                4.  **Use Business Language**: Talk about performance, trends, contribution, outliers, and potential impact.
+                **Your Knowledge Base (Real-time Info):**
+                - **Dataset Columns**:
+                    - Categorical: ${categoricalCols.join(', ')}
+                    - Numerical: ${numericalCols.join(', ')}
+                - **Analysis Cards on Screen**:
+                    ${cardContext.length > 0 ? JSON.stringify(cardContext, null, 2) : "No cards yet."}
+                    (Use the aggregatedDataSample to answer questions about a card's content).
+                - **Raw Data Sample (first 20 rows for context):**
+                    ${rawDataSample.length > 0 ? JSON.stringify(rawDataSample, null, 2) : "No raw data available."}
+                    (Use this sample to verify specific details or answer questions about individual rows. Do not assume it is the complete dataset.)
+                **Conversation history:**
+                ${history}
+                **The user's latest message is:** "${userPrompt}"
+                **Your Available Actions & Tools:**
+                You MUST respond by creating a sequence of one or more actions.
+                1.  **text_response**: For conversation. If your text explains a specific card, you MUST include its 'cardId'.
+                2.  **plan_creation**: To create a NEW chart. If creating a bar/pie/doughnut chart with a \`groupByColumn\` that has many categories, you should set a \`defaultTopN\` of 8 and \`defaultHideOthers\` to \`true\` to ensure the chart is readable.
+                3.  **dom_action**: To INTERACT with an EXISTING card. Available tools:
+                    - **highlightCard**: Scrolls to and highlights a card. Args: \`{ "cardId": "..." }\`.
+                    - **changeCardChartType**: Changes a card's chart. Args: \`{ "cardId": "...", "newType": "..." }\`.
+                    - **showCardData**: Shows/hides a card's data table. Args: \`{ "cardId": "...", "visible": boolean }\`.
+                    - **filterCard**: Applies a filter to a card. Use this to show a subset of data. Args: \`{ "cardId": "...", "column": "...", "values": ["..."] }\`. To clear a filter, send an empty values array.
+                4.  **execute_js_code**: For COMPLEX TASKS that aggregations cannot handle, like creating new derived columns or cleaning data. You can use this tool AT ANY TIME.
+                    - **IMPORTANT**: When you use this tool, the ENTIRE dataset is updated, and all charts on the screen will automatically regenerate to reflect the changes. You should inform the user of this.
+                    - **Use Case**: User says "Create a 'Cost per Transaction' column" or "Remove all rows for the USA".
+                    - **Your Action**: Generate an 'execute_js_code' action. The \`jsFunctionBody\` should be a string of JS code, like \`return data.map(row => ({ ...row, 'Cost per Transaction': row['Total Spend'] / row['Transactions'] }));\`
+                    - The function you write will receive the entire dataset as an array of objects called \`data\` and MUST return the transformed array.
+                5.  **proceed_to_analysis**: This action is DEPRECATED and should not be used. The analysis runs automatically. If the user asks to proceed, just confirm that the analysis is already done.
+                **Decision-Making Process:**
+                - THINK STEP-BY-STEP. A single user request might require multiple actions.
+                - **Multi-step example**: If user says "On the sales card, show me only Marketing and Engineering, and explain the result", you might return THREE actions:
+                    1. A 'dom_action' to 'filterCard' for the correct cardId, column, and values.
+                    2. A 'text_response' action that says something like "I've filtered the card for you."
+                    3. A 'text_response' action with the explanation of the filtered data, including the 'cardId'.
+                - If the user asks to modify the data (e.g., "delete rows", "create a column"), use 'execute_js_code'. You should always accompany this with a 'text_response' to confirm what you've done, e.g., "I've removed those rows and updated all the charts for you."
+                - Always be conversational. Use 'text_response' actions to acknowledge the user and explain what you are doing.
+                Your output MUST be a single JSON object with an "actions" key containing an array of action objects.
+            `;
+            const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
+                model: settings.model as 'gemini-2.5-flash' | 'gemini-2.5-pro',
+                contents: prompt,
+                config: {
+                    responseMimeType: 'application/json',
+                    responseSchema: multiActionChatResponseSchema,
+                },
+            }));
+            jsonStr = response.text.trim();
+        }
+
         const chatResponse = JSON.parse(jsonStr) as AiChatResponse;
 
         if (!chatResponse.actions || !Array.isArray(chatResponse.actions)) {

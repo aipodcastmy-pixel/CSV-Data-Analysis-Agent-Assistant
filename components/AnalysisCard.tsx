@@ -50,7 +50,6 @@ export const AnalysisCard: React.FC<AnalysisCardProps> = ({ cardData, onChartTyp
     const englishSummary = summaryParts[0]?.trim();
     const mandarinSummary = summaryParts[1]?.trim();
 
-    const isPieChart = displayChartType === 'pie' || displayChartType === 'doughnut';
     const valueKey = plan.valueColumn || 'count';
     const groupByKey = plan.groupByColumn || '';
 
@@ -147,8 +146,8 @@ export const AnalysisCard: React.FC<AnalysisCardProps> = ({ cardData, onChartTyp
             </div>
             <p className="text-sm text-gray-400 mb-4">{plan.description}</p>
 
-            <div className={`grid gap-4 flex-grow ${isPieChart ? 'grid-cols-2 items-center' : 'grid-cols-1'}`}>
-                <div className={`relative ${isPieChart ? 'h-48' : 'h-64'}`}>
+            <div className="grid gap-4 flex-grow grid-cols-1">
+                <div className="relative h-64">
                      <ChartRenderer 
                         ref={chartRendererRef}
                         chartType={displayChartType} 

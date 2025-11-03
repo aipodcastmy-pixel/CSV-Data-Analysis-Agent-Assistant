@@ -27,7 +27,7 @@ const HistoryIcon: React.FC = () => (
 
 const NewIcon: React.FC = () => (
     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2-2z" />
     </svg>
 );
 
@@ -58,6 +58,8 @@ const App: React.FC = () => {
 
     const isResizingAsideRef = useRef(false);
     const isMounted = useRef(false);
+
+    const isApiKeySet = settings.provider === 'google' ? !!settings.geminiApiKey : !!settings.openAIApiKey;
 
     const loadReportsList = useCallback(async () => {
         const list = await getReportsList();
@@ -279,7 +281,7 @@ const App: React.FC = () => {
             let dataForAnalysis = parsedData;
             let profiles: ColumnProfile[];
 
-            if (settings.apiKey) {
+            if (isApiKeySet) {
                 addProgress('AI is analyzing data for cleaning and reshaping...');
                 const initialProfiles = profileData(dataForAnalysis.data);
                 
@@ -312,7 +314,8 @@ const App: React.FC = () => {
                 handleInitialAnalysis(dataForAnalysis);
 
             } else {
-                 addProgress('API Key not set. Please add your Gemini API Key in the settings.', 'error');
+                 const providerName = settings.provider === 'google' ? 'Gemini' : 'OpenAI';
+                 addProgress(`API Key not set. Please add your ${providerName} API Key in the settings.`, 'error');
                  setIsSettingsModalOpen(true);
                  profiles = profileData(dataForAnalysis.data);
                  addProgress('Profiling data columns...');
@@ -338,7 +341,7 @@ const App: React.FC = () => {
                 setAppState(prev => ({ ...prev, isBusy: false, currentView: 'file_upload' }));
             }
         }
-    }, [addProgress, settings, loadReportsList, handleInitialAnalysis]);
+    }, [addProgress, settings, loadReportsList, handleInitialAnalysis, isApiKeySet]);
 
 
     const regenerateAnalyses = useCallback(async (newData: CsvData) => {
@@ -443,8 +446,9 @@ const App: React.FC = () => {
             addProgress("Please upload a CSV file first.", "error");
             return;
         }
-        if (!settings.apiKey) {
-            addProgress('API Key not set. Please add your Gemini API Key in the settings.', 'error');
+        if (!isApiKeySet) {
+            const providerName = settings.provider === 'google' ? 'Gemini' : 'OpenAI';
+            addProgress(`API Key not set. Please add your ${providerName} API Key in the settings.`, 'error');
             setIsSettingsModalOpen(true);
             return;
         }
@@ -560,7 +564,7 @@ const App: React.FC = () => {
                 setAppState(prev => ({ ...prev, isBusy: false }));
             }
         }
-    }, [appState, addProgress, runAnalysisPipeline, settings, regenerateAnalyses]);
+    }, [appState, addProgress, runAnalysisPipeline, settings, regenerateAnalyses, isApiKeySet]);
     
     const handleChartTypeChange = (cardId: string, newType: ChartType) => {
         setAppState(prev => ({
@@ -665,7 +669,7 @@ const App: React.FC = () => {
                         isBusy={isBusy}
                         progressMessages={progressMessages}
                         fileName={csvData?.fileName || null}
-                        isApiKeySet={!!settings.apiKey}
+                        isApiKeySet={isApiKeySet}
                     />
                 </div>
             );
@@ -729,12 +733,22 @@ const App: React.FC = () => {
                            <HistoryIcon />
                            <span className="hidden sm:inline">History</span>
                         </button>
+                        {!isAsideVisible && (
+                             <button
+                                onClick={() => setIsAsideVisible(true)}
+                                className="p-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+                                aria-label="Show Assistant Panel"
+                                title="Show Assistant Panel"
+                            >
+                                <ShowAssistantIcon />
+                            </button>
+                        )}
                     </div>
                 </header>
                 {renderMainContent()}
             </main>
             
-            {isAsideVisible ? (
+            {isAsideVisible && (
                 <>
                     <div onMouseDown={handleAsideMouseDown} className="hidden md:block w-1.5 cursor-col-resize bg-gray-700 hover:bg-brand-secondary transition-colors duration-200"/>
                     <aside className="w-full md:w-auto bg-gray-800 flex flex-col h-full border-l border-gray-700" style={{ width: asideWidth }}>
@@ -743,7 +757,7 @@ const App: React.FC = () => {
                             chatHistory={chatHistory}
                             isBusy={isBusy} 
                             onSendMessage={handleChatMessage} 
-                            isApiKeySet={!!settings.apiKey}
+                            isApiKeySet={isApiKeySet}
                             onToggleVisibility={() => setIsAsideVisible(false)}
                             onOpenSettings={() => setIsSettingsModalOpen(true)}
                             onShowCard={handleShowCardFromChat}
@@ -751,17 +765,6 @@ const App: React.FC = () => {
                         />
                     </aside>
                 </>
-            ) : (
-                 <div className="fixed top-4 right-4 z-20">
-                    <button
-                        onClick={() => setIsAsideVisible(true)}
-                        className="p-3 bg-brand-secondary rounded-full text-white shadow-lg hover:bg-brand-primary focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900 focus:ring-white transition-all transform hover:scale-110"
-                        aria-label="Show Assistant Panel"
-                        title="Show Assistant Panel"
-                    >
-                        <ShowAssistantIcon />
-                    </button>
-                </div>
             )}
         </div>
     );
