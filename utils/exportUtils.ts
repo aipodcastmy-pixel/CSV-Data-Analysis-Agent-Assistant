@@ -6,7 +6,7 @@ declare const Papa: any;
 export const exportToPng = async (element: HTMLElement, title: string) => {
   try {
     const dataUrl = await htmlToImage.toPng(element, { 
-      backgroundColor: '#1f2937', // Match card background
+      backgroundColor: '#ffffff', // Use a white background for light theme
       pixelRatio: 2,
     });
     const link = document.createElement('a');

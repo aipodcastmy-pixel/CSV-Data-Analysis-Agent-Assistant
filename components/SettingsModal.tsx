@@ -53,25 +53,25 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
 
     return (
         <div 
-            className="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50"
+            className="fixed inset-0 bg-slate-900 bg-opacity-50 flex items-center justify-center z-50"
             onClick={onClose}
         >
             <div 
-                className="bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-md border border-gray-700"
+                className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md border border-slate-200"
                 onClick={e => e.stopPropagation()}
             >
-                <h2 className="text-2xl font-bold text-white mb-6">Settings</h2>
+                <h2 className="text-2xl font-bold text-slate-900 mb-6">Settings</h2>
                 
                 <div className="space-y-6">
                      <div>
-                        <label className="block text-sm font-medium text-gray-300 mb-2">
+                        <label className="block text-sm font-medium text-slate-700 mb-2">
                             AI Provider
                         </label>
-                        <div className="flex space-x-2 rounded-lg bg-gray-700 p-1">
-                            <button onClick={() => handleProviderChange('google')} className={`w-full rounded-md py-1.5 text-sm font-medium transition-colors ${settings.provider === 'google' ? 'bg-blue-600 text-white shadow' : 'text-gray-300 hover:bg-gray-600'}`}>
+                        <div className="flex space-x-2 rounded-lg bg-slate-200 p-1">
+                            <button onClick={() => handleProviderChange('google')} className={`w-full rounded-md py-1.5 text-sm font-medium transition-colors ${settings.provider === 'google' ? 'bg-blue-600 text-white shadow' : 'text-slate-700 hover:bg-slate-300'}`}>
                                 Google Gemini
                             </button>
-                            <button onClick={() => handleProviderChange('openai')} className={`w-full rounded-md py-1.5 text-sm font-medium transition-colors ${settings.provider === 'openai' ? 'bg-blue-600 text-white shadow' : 'text-gray-300 hover:bg-gray-600'}`}>
+                            <button onClick={() => handleProviderChange('openai')} className={`w-full rounded-md py-1.5 text-sm font-medium transition-colors ${settings.provider === 'openai' ? 'bg-blue-600 text-white shadow' : 'text-slate-700 hover:bg-slate-300'}`}>
                                 OpenAI
                             </button>
                         </div>
@@ -79,7 +79,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
                     
                     {settings.provider === 'google' && (
                         <div>
-                            <label htmlFor="geminiApiKey" className="block text-sm font-medium text-gray-300">
+                            <label htmlFor="geminiApiKey" className="block text-sm font-medium text-slate-700">
                                 Gemini API Key
                             </label>
                             <input
@@ -88,18 +88,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
                                 name="geminiApiKey"
                                 value={settings.geminiApiKey}
                                 onChange={handleInputChange}
-                                className="mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md py-2 px-3 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                className="mt-1 block w-full bg-white border border-slate-300 rounded-md py-2 px-3 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
                                 placeholder="Enter your API key"
                             />
-                            <p className="text-xs text-gray-500 mt-1">
-                                Get your key from <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">Google AI Studio</a>.
+                            <p className="text-xs text-slate-500 mt-1">
+                                Get your key from <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Google AI Studio</a>.
                             </p>
                         </div>
                     )}
                     
                     {settings.provider === 'openai' && (
                          <div>
-                            <label htmlFor="openAIApiKey" className="block text-sm font-medium text-gray-300">
+                            <label htmlFor="openAIApiKey" className="block text-sm font-medium text-slate-700">
                                 OpenAI API Key
                             </label>
                             <input
@@ -108,18 +108,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
                                 name="openAIApiKey"
                                 value={settings.openAIApiKey}
                                 onChange={handleInputChange}
-                                className="mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md py-2 px-3 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                className="mt-1 block w-full bg-white border border-slate-300 rounded-md py-2 px-3 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
                                 placeholder="Enter your API key (sk-...)"
                             />
-                            <p className="text-xs text-gray-500 mt-1">
-                                Get your key from <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">OpenAI Platform</a>.
+                            <p className="text-xs text-slate-500 mt-1">
+                                Get your key from <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">OpenAI Platform</a>.
                             </p>
                         </div>
                     )}
 
 
                     <div>
-                        <label htmlFor="model" className="block text-sm font-medium text-gray-300">
+                        <label htmlFor="model" className="block text-sm font-medium text-slate-700">
                             AI Model
                         </label>
                         <select
@@ -127,19 +127,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
                             name="model"
                             value={settings.model}
                             onChange={handleInputChange}
-                            className="mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md py-2 px-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            className="mt-1 block w-full bg-white border border-slate-300 rounded-md py-2 px-3 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
                         >
                             {(settings.provider === 'google' ? googleModels : openAIModels).map(model => (
                                 <option key={model} value={model}>{model}</option>
                             ))}
                         </select>
-                         <p className="text-xs text-gray-500 mt-1">
+                         <p className="text-xs text-slate-500 mt-1">
                             {settings.provider === 'google' ? '`pro` is more powerful, `flash` is faster.' : '`gpt-4o` is the latest model.'}
                         </p>
                     </div>
 
                     <div>
-                        <label htmlFor="language" className="block text-sm font-medium text-gray-300">
+                        <label htmlFor="language" className="block text-sm font-medium text-slate-700">
                             Agent Language
                         </label>
                         <select
@@ -147,13 +147,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
                             name="language"
                             value={settings.language}
                             onChange={handleInputChange}
-                            className="mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md py-2 px-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            className="mt-1 block w-full bg-white border border-slate-300 rounded-md py-2 px-3 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
                         >
                             {languages.map(lang => (
                                 <option key={lang} value={lang}>{lang}</option>
                             ))}
                         </select>
-                         <p className="text-xs text-gray-500 mt-1">
+                         <p className="text-xs text-slate-500 mt-1">
                             Primary language for AI summaries and chat responses.
                         </p>
                     </div>
@@ -162,7 +162,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
                 <div className="mt-8 flex justify-end space-x-3">
                     <button
                         onClick={onClose}
-                        className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-500 transition-colors"
+                        className="px-4 py-2 bg-slate-200 text-slate-800 rounded-md hover:bg-slate-300 transition-colors"
                     >
                         Cancel
                     </button>

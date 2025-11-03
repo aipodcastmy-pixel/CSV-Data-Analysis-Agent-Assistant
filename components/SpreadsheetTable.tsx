@@ -13,9 +13,9 @@ const ROWS_PER_PAGE = 50;
 
 const SortIcon: React.FC<{ direction?: 'ascending' | 'descending' }> = ({ direction }) => {
     if (!direction) {
-        return <span className="text-gray-500">↕</span>;
+        return <span className="text-slate-400">↕</span>;
     }
-    return direction === 'ascending' ? <span className="text-white">↑</span> : <span className="text-white">↓</span>;
+    return direction === 'ascending' ? <span className="text-slate-800">↑</span> : <span className="text-slate-800">↓</span>;
 };
 
 
@@ -23,7 +23,7 @@ export const SpreadsheetTable: React.FC<SpreadsheetTableProps> = ({ data, sortCo
     const [currentPage, setCurrentPage] = useState(0);
 
     if (!data || data.length === 0) {
-        return <p className="text-gray-400 p-4 text-center">No data matches your search.</p>;
+        return <p className="text-slate-500 p-4 text-center">No data matches your search.</p>;
     }
 
     const headers = Object.keys(data[0]);
@@ -55,13 +55,13 @@ export const SpreadsheetTable: React.FC<SpreadsheetTableProps> = ({ data, sortCo
         <div className="w-full text-sm h-full flex flex-col">
             <div className="flex-grow overflow-auto">
                 <table className="w-full text-left border-collapse" style={{ tableLayout: 'fixed' }}>
-                    <thead className="bg-gray-700 text-gray-300 sticky top-0 z-10">
+                    <thead className="bg-slate-100 text-slate-600 sticky top-0 z-10">
                         <tr>
-                            <th className="p-2 font-semibold text-gray-400 text-center sticky left-0 z-20 bg-gray-700 border-r border-gray-600" style={{width: '60px'}}>#</th>
+                            <th className="p-2 font-semibold text-slate-500 text-center sticky left-0 z-20 bg-slate-100 border-r border-slate-200" style={{width: '60px'}}>#</th>
                             {headers.map((header, index) => (
                                 <th 
                                     key={header} 
-                                    className="p-2 font-semibold whitespace-nowrap border-r border-l border-gray-600 relative"
+                                    className="p-2 font-semibold whitespace-nowrap border-r border-l border-slate-200 relative"
                                     style={{ width: columnWidths[header] || 150 }}
                                 >
                                     <button onClick={() => onSort(header)} className="flex items-center justify-between w-full h-full">
@@ -76,12 +76,12 @@ export const SpreadsheetTable: React.FC<SpreadsheetTableProps> = ({ data, sortCo
                             ))}
                         </tr>
                     </thead>
-                    <tbody className="bg-gray-800">
+                    <tbody className="bg-white">
                         {paginatedData.map((row, rowIndex) => (
-                            <tr key={rowIndex} className="border-b border-gray-700 last:border-b-0 hover:bg-gray-700/50">
-                                <td className="p-2 text-gray-500 text-center sticky left-0 z-10 bg-gray-800 border-r border-gray-600" style={{width: '60px'}}>{startIndex + rowIndex + 1}</td>
+                            <tr key={rowIndex} className="border-b border-slate-200 last:border-b-0 hover:bg-slate-50">
+                                <td className="p-2 text-slate-400 text-center sticky left-0 z-10 bg-white border-r border-slate-200" style={{width: '60px'}}>{startIndex + rowIndex + 1}</td>
                                 {headers.map(header => (
-                                    <td key={`${rowIndex}-${header}`} className="p-2 text-gray-400 whitespace-nowrap overflow-hidden text-ellipsis border-r border-l border-gray-700">
+                                    <td key={`${rowIndex}-${header}`} className="p-2 text-slate-700 whitespace-nowrap overflow-hidden text-ellipsis border-r border-l border-slate-200">
                                         {formatValue(row[header])}
                                     </td>
                                 ))}
@@ -91,16 +91,16 @@ export const SpreadsheetTable: React.FC<SpreadsheetTableProps> = ({ data, sortCo
                 </table>
             </div>
             {totalPages > 1 && (
-                <div className="flex justify-between items-center p-2 bg-gray-700 border-t border-gray-600 flex-shrink-0">
-                    <span className="text-xs text-gray-400">
+                <div className="flex justify-between items-center p-2 bg-slate-100 border-t border-slate-200 flex-shrink-0">
+                    <span className="text-xs text-slate-500">
                         Showing {startIndex + 1} - {Math.min(startIndex + ROWS_PER_PAGE, data.length)} of {data.length} rows
                     </span>
                     <div className="flex items-center space-x-2">
-                        <button onClick={handlePrevPage} disabled={currentPage === 0} className="px-2 py-1 text-xs bg-gray-600 rounded disabled:opacity-50 hover:bg-gray-500">
+                        <button onClick={handlePrevPage} disabled={currentPage === 0} className="px-2 py-1 text-xs bg-slate-200 rounded disabled:opacity-50 hover:bg-slate-300">
                             Previous
                         </button>
-                        <span className="text-xs text-gray-400">Page {currentPage + 1} of {totalPages}</span>
-                        <button onClick={handleNextPage} disabled={currentPage === totalPages - 1} className="px-2 py-1 text-xs bg-gray-600 rounded disabled:opacity-50 hover:bg-gray-500">
+                        <span className="text-xs text-slate-500">Page {currentPage + 1} of {totalPages}</span>
+                        <button onClick={handleNextPage} disabled={currentPage === totalPages - 1} className="px-2 py-1 text-xs bg-slate-200 rounded disabled:opacity-50 hover:bg-slate-300">
                             Next
                         </button>
                     </div>

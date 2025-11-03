@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { ChartType } from '../types';
 
@@ -49,13 +48,13 @@ const chartTypes: ChartType[] = ['bar', 'line', 'pie', 'doughnut', 'scatter'];
 
 export const ChartTypeSwitcher: React.FC<ChartTypeSwitcherProps> = ({ currentType, onChange }) => {
     return (
-        <div className="flex items-center space-x-1 bg-gray-700 p-1 rounded-md">
+        <div className="flex items-center space-x-1 bg-slate-200 p-1 rounded-md">
             {chartTypes.map(type => (
                 <button
                     key={type}
                     onClick={() => onChange(type)}
                     title={`Switch to ${type} chart`}
-                    className={`p-1 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${currentType === type ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-gray-600 hover:text-white'}`}
+                    className={`p-1 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${currentType === type ? 'bg-blue-600 text-white' : 'text-slate-500 hover:bg-slate-300 hover:text-slate-700'}`}
                 >
                     <ChartIcon type={type} />
                 </button>

@@ -66,12 +66,12 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ progressMessages, chatHist
 
             if (msg.type === 'ai_thinking') {
                 return (
-                    <div key={`chat-${index}`} className="my-2 p-3 bg-gray-900/50 border border-blue-500/20 rounded-lg">
-                        <div className="flex items-center text-blue-300 mb-2">
+                    <div key={`chat-${index}`} className="my-2 p-3 bg-white border border-blue-200 rounded-lg">
+                        <div className="flex items-center text-blue-700 mb-2">
                              <span className="text-lg mr-2">🧠</span>
                              <h4 className="font-semibold">AI's Initial Analysis</h4>
                         </div>
-                        <p className="text-sm text-gray-300 whitespace-pre-wrap">{msg.text}</p>
+                        <p className="text-sm text-slate-700 whitespace-pre-wrap">{msg.text}</p>
                     </div>
                 )
             }
@@ -89,12 +89,12 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ progressMessages, chatHist
             // AI message
             return (
                 <div key={`chat-${index}`} className="flex">
-                    <div className={`rounded-lg px-3 py-2 max-w-xs lg:max-w-md ${msg.isError ? 'bg-red-900/50' : 'bg-gray-700'}`}>
-                         <p className={`text-sm ${msg.isError ? 'text-red-300' : 'text-gray-200'}`}>{msg.text}</p>
+                    <div className={`rounded-lg px-3 py-2 max-w-xs lg:max-w-md ${msg.isError ? 'bg-red-100' : 'bg-slate-200'}`}>
+                         <p className={`text-sm ${msg.isError ? 'text-red-800' : 'text-slate-800'}`}>{msg.text}</p>
                          {msg.cardId && !msg.isError && (
                             <button 
                                 onClick={() => onShowCard(msg.cardId!)}
-                                className="mt-2 text-xs bg-blue-600/50 text-blue-200 px-2 py-1 rounded-md hover:bg-blue-600 transition-colors w-full text-left font-medium"
+                                className="mt-2 text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-md hover:bg-blue-200 transition-colors w-full text-left font-medium"
                             >
                                 → Show Related Card
                             </button>
@@ -105,8 +105,8 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ progressMessages, chatHist
         } else { // It's a ProgressMessage
             const msg = item as ProgressMessage;
              return (
-                 <div key={`prog-${index}`} className={`flex text-xs ${msg.type === 'error' ? 'text-red-400' : 'text-gray-400'}`}>
-                    <span className="mr-2 text-gray-500">{msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                 <div key={`prog-${index}`} className={`flex text-xs ${msg.type === 'error' ? 'text-red-600' : 'text-slate-500'}`}>
+                    <span className="mr-2 text-slate-400">{msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                     <span>{msg.text}</span>
                 </div>
             )
@@ -114,13 +114,13 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ progressMessages, chatHist
     }
 
     return (
-        <div className="flex flex-col h-full bg-gray-800 rounded-lg md:rounded-none">
-            <div className="p-4 border-b border-gray-700 flex justify-between items-center">
-                <h2 className="text-xl font-semibold text-white">Assistant</h2>
+        <div className="flex flex-col h-full bg-slate-100 rounded-lg md:rounded-none">
+            <div className="p-4 border-b border-slate-200 flex justify-between items-center">
+                <h2 className="text-xl font-semibold text-slate-900">Assistant</h2>
                  <div className="flex items-center space-x-3">
                     <button
                         onClick={onOpenSettings}
-                        className="p-1 text-gray-400 rounded-full hover:bg-gray-700 hover:text-white transition-colors"
+                        className="p-1 text-slate-500 rounded-full hover:bg-slate-200 hover:text-slate-800 transition-colors"
                         title="Settings"
                         aria-label="Open Settings"
                     >
@@ -128,7 +128,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ progressMessages, chatHist
                     </button>
                     <button 
                         onClick={onToggleVisibility} 
-                        className="p-1 text-gray-400 rounded-full hover:bg-gray-700 hover:text-white transition-colors"
+                        className="p-1 text-slate-500 rounded-full hover:bg-slate-200 hover:text-slate-800 transition-colors"
                         title="Hide Panel"
                         aria-label="Hide Assistant Panel"
                     >
@@ -140,7 +140,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ progressMessages, chatHist
                 {timeline.map(renderMessage)}
 
                 {isBusy && (
-                    <div className="flex items-center text-blue-400">
+                    <div className="flex items-center text-blue-600">
                         <svg className="animate-spin -ml-1 mr-3 h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
@@ -150,7 +150,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ progressMessages, chatHist
                 )}
                 <div ref={messagesEndRef} />
             </div>
-            <div className="p-4 border-t border-gray-700">
+            <div className="p-4 border-t border-slate-200 bg-white">
                 <form onSubmit={handleSend}>
                     <input
                         type="text"
@@ -158,10 +158,10 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ progressMessages, chatHist
                         onChange={(e) => setInput(e.target.value)}
                         placeholder={getPlaceholder()}
                         disabled={isBusy || !isApiKeySet || currentView === 'file_upload'}
-                        className="w-full bg-gray-700 border border-gray-600 rounded-md py-2 px-4 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+                        className="w-full bg-white border border-slate-300 rounded-md py-2 px-4 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
                     />
                 </form>
-                 <div className="text-xs text-gray-500 mt-2">
+                 <div className="text-xs text-slate-400 mt-2">
                     {/* Fix: Replaced check against deprecated 'data_preview' view. The logic is updated to only show example prompts on the analysis dashboard. */}
                     {currentView === 'analysis_dashboard' 
                         ? 'e.g., "Sum of sales by region", or "Remove rows for USA"'

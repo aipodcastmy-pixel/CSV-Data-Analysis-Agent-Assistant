@@ -19,8 +19,8 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({ cards, finalSummar
         return (
             <div className="flex items-center justify-center h-full">
                  <div className="text-center p-4">
-                    <p className="text-gray-400">Your analysis results will appear here.</p>
-                    <p className="text-gray-500 text-sm mt-2">The AI is generating the initial analysis...</p>
+                    <p className="text-slate-500">Your analysis results will appear here.</p>
+                    <p className="text-slate-400 text-sm mt-2">The AI is generating the initial analysis...</p>
                  </div>
             </div>
         );

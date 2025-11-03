@@ -9,7 +9,7 @@ interface SpreadsheetPanelProps {
 }
 
 const SearchIcon: React.FC = () => (
-    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
     </svg>
 );
@@ -120,15 +120,15 @@ export const SpreadsheetPanel: React.FC<SpreadsheetPanelProps> = ({ csvData, isV
     }, [csvData.data, sortConfig, filterText, isWholeWordSearch]);
     
     return (
-        <div className="bg-gray-800 rounded-lg shadow-lg flex flex-col transition-all duration-300 border border-gray-700">
+        <div className="bg-white rounded-lg shadow-lg flex flex-col transition-all duration-300 border border-slate-200">
             <button
                 onClick={onToggleVisibility}
-                className="flex justify-between items-center p-4 cursor-pointer w-full text-left rounded-t-lg hover:bg-gray-700/50"
+                className="flex justify-between items-center p-4 cursor-pointer w-full text-left rounded-t-lg hover:bg-slate-50"
                 aria-expanded={isVisible}
             >
                 <div>
-                    <h3 className="text-lg font-bold text-white">Raw Data Explorer</h3>
-                    <p className="text-sm text-gray-400">File: {csvData.fileName}</p>
+                    <h3 className="text-lg font-bold text-slate-900">Raw Data Explorer</h3>
+                    <p className="text-sm text-slate-500">File: {csvData.fileName}</p>
                 </div>
                 <ChevronIcon isOpen={isVisible} />
             </button>
@@ -145,7 +145,7 @@ export const SpreadsheetPanel: React.FC<SpreadsheetPanelProps> = ({ csvData, isV
                                 placeholder="Search table..."
                                 value={filterText}
                                 onChange={(e) => setFilterText(e.target.value)}
-                                className="bg-gray-700 border border-gray-600 rounded-md py-1.5 pl-10 pr-4 text-white placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-500 w-full sm:w-64"
+                                className="bg-white border border-slate-300 rounded-md py-1.5 pl-10 pr-4 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-500 w-full sm:w-64"
                             />
                         </div>
                          <div className="flex items-center">
@@ -154,14 +154,14 @@ export const SpreadsheetPanel: React.FC<SpreadsheetPanelProps> = ({ csvData, isV
                                 id="whole-word-search"
                                 checked={isWholeWordSearch}
                                 onChange={(e) => setIsWholeWordSearch(e.target.checked)}
-                                className="h-4 w-4 rounded border-gray-500 bg-gray-600 text-blue-500 focus:ring-blue-500 cursor-pointer"
+                                className="h-4 w-4 rounded border-slate-300 bg-slate-100 text-blue-600 focus:ring-blue-500 cursor-pointer"
                             />
-                            <label htmlFor="whole-word-search" className="ml-2 text-sm text-gray-300 select-none cursor-pointer">
+                            <label htmlFor="whole-word-search" className="ml-2 text-sm text-slate-700 select-none cursor-pointer">
                                 Whole word
                             </label>
                         </div>
                     </div>
-                    <div className="flex-grow overflow-auto border border-gray-700 rounded-md" style={{maxHeight: '60vh'}}>
+                    <div className="flex-grow overflow-auto border border-slate-200 rounded-md" style={{maxHeight: '60vh'}}>
                          <SpreadsheetTable 
                             data={processedData}
                             sortConfig={sortConfig}

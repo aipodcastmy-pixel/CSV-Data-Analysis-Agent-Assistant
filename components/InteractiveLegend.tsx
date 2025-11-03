@@ -34,16 +34,16 @@ export const InteractiveLegend: React.FC<InteractiveLegendProps> = ({ data, tota
                     <button
                         key={label}
                         onClick={() => onLabelClick(label)}
-                        className={`w-full flex items-center justify-between p-1.5 rounded-md transition-all duration-200 ${isHidden ? 'opacity-50' : 'hover:bg-gray-700/50'}`}
+                        className={`w-full flex items-center justify-between p-1.5 rounded-md transition-all duration-200 ${isHidden ? 'opacity-50' : 'hover:bg-slate-100'}`}
                         title={`Click to ${isHidden ? 'show' : 'hide'} "${label}"`}
                     >
                         <div className="flex items-center truncate mr-2">
-                            <span className="w-3 h-3 rounded-sm mr-2 flex-shrink-0" style={{ backgroundColor: isHidden ? '#6b7280' : color }}></span>
-                            <span className={`truncate text-xs ${isHidden ? 'line-through text-gray-500' : 'text-gray-300'}`}>{label}</span>
+                            <span className="w-3 h-3 rounded-sm mr-2 flex-shrink-0" style={{ backgroundColor: isHidden ? '#9ca3af' : color }}></span>
+                            <span className={`truncate text-xs ${isHidden ? 'line-through text-slate-400' : 'text-slate-700'}`}>{label}</span>
                         </div>
                         <div className="flex items-baseline ml-2 flex-shrink-0">
-                            <span className={`font-semibold text-xs ${isHidden ? 'text-gray-500' : 'text-white'}`}>{formatValue(value)}</span>
-                            <span className="text-xs text-gray-400 ml-1.5 w-12 text-right">({percentage}%)</span>
+                            <span className={`font-semibold text-xs ${isHidden ? 'text-slate-400' : 'text-slate-800'}`}>{formatValue(value)}</span>
+                            <span className="text-xs text-slate-500 ml-1.5 w-12 text-right">({percentage}%)</span>
                         </div>
                     </button>
                 );

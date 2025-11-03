@@ -1,4 +1,3 @@
-
 import React, { useEffect, useRef, useImperativeHandle, forwardRef } from 'react';
 import { ChartType, CsvRow, AnalysisPlan } from '../types';
 
@@ -21,7 +20,7 @@ interface ChartRendererProps {
 // Updated color palette for better distinction and accessibility (Tableau 10)
 const COLORS = ['#4e79a7', '#f28e2c', '#e15759', '#76b7b2', '#59a14f', '#edc949', '#af7aa1', '#ff9da7', '#9c755f', '#bab0ab'];
 const BORDER_COLORS = COLORS.map(c => `${c}B3`);
-const BG_COLORS = COLORS.map(c => `${c}4D`);
+const BG_COLORS = COLORS.map(c => `${c}80`); // Increased opacity for better visibility on light bg
 
 const HIGHLIGHT_COLOR = '#3b82f6'; // blue-500
 const HIGHLIGHT_BORDER_COLOR = '#2563eb'; // blue-600
@@ -92,17 +91,20 @@ export const ChartRenderer = forwardRef<ChartRendererHandle, ChartRendererProps>
                     display: false
                 },
                 tooltip: {
-                    backgroundColor: '#374151', 
-                    titleColor: '#ffffff',
-                    bodyColor: '#e5e7eb',
-                    borderColor: '#4b5563', 
+                    backgroundColor: '#ffffff',
+                    titleColor: '#1e293b',
+                    bodyColor: '#475569',
+                    borderColor: '#e2e8f0',
                     borderWidth: 1,
+                    titleFont: { weight: 'bold' },
+                    bodyFont: { size: 13 },
+                    padding: 10,
                 },
             },
             scales: {
                 x: {
                     ticks: { 
-                        color: '#9ca3af',
+                        color: '#64748b',
                         callback: function(value: number | string) {
                             const label = this.getLabelForValue(Number(value));
                             if (typeof label === 'string' && label.length > 30) {
@@ -111,11 +113,11 @@ export const ChartRenderer = forwardRef<ChartRendererHandle, ChartRendererProps>
                             return label;
                         }
                     },
-                    grid: { color: '#374151' } 
+                    grid: { color: '#e2e8f0' } 
                 },
                 y: {
-                    ticks: { color: '#9ca3af' },
-                    grid: { color: '#374151' }
+                    ticks: { color: '#64748b' },
+                    grid: { color: '#e2e8f0' }
                 }
             }
         };
@@ -226,11 +228,11 @@ export const ChartRenderer = forwardRef<ChartRendererHandle, ChartRendererProps>
                         scales: {
                             x: {
                                 ...commonOptions.scales.x,
-                                title: { display: true, text: xValueColumn, color: '#9ca3af' }
+                                title: { display: true, text: xValueColumn, color: '#64748b' }
                             },
                              y: {
                                 ...commonOptions.scales.y,
-                                title: { display: true, text: yValueColumn, color: '#9ca3af' }
+                                title: { display: true, text: yValueColumn, color: '#64748b' }
                             }
                         },
                         plugins: { ...commonOptions.plugins, zoom: zoomOptions }

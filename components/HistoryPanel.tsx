@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { ReportListItem } from '../types';
 import { CURRENT_SESSION_KEY } from '../storageService';
@@ -38,18 +37,18 @@ export const HistoryPanel: React.FC<HistoryPanelProps> = ({ isOpen, onClose, rep
 
     return (
         <div 
-            className="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50"
+            className="fixed inset-0 bg-slate-900 bg-opacity-50 flex items-center justify-center z-50"
             onClick={onClose}
         >
             <div 
-                className="bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-2xl h-full max-h-[80vh] border border-gray-700 flex flex-col"
+                className="bg-white rounded-lg shadow-xl p-6 w-full max-w-2xl h-full max-h-[80vh] border border-slate-200 flex flex-col"
                 onClick={e => e.stopPropagation()}
             >
                 <div className="flex justify-between items-center mb-4">
-                     <h2 className="text-2xl font-bold text-white">Analysis History</h2>
+                     <h2 className="text-2xl font-bold text-slate-900">Analysis History</h2>
                      <button
                         onClick={onClose}
-                        className="p-1 text-gray-400 rounded-full hover:bg-gray-700 hover:text-white transition-colors"
+                        className="p-1 text-slate-500 rounded-full hover:bg-slate-100 hover:text-slate-800 transition-colors"
                         title="Close History"
                     >
                         <CloseIcon />
@@ -59,7 +58,7 @@ export const HistoryPanel: React.FC<HistoryPanelProps> = ({ isOpen, onClose, rep
                 <div className="flex-grow overflow-y-auto pr-2">
                     {reports.length === 0 ? (
                         <div className="flex items-center justify-center h-full">
-                            <p className="text-gray-500">No past reports found. Upload a CSV to start.</p>
+                            <p className="text-slate-500">No past reports found. Upload a CSV to start.</p>
                         </div>
                     ) : (
                         <ul className="space-y-3">
@@ -69,25 +68,25 @@ export const HistoryPanel: React.FC<HistoryPanelProps> = ({ isOpen, onClose, rep
                                 <li key={report.id}>
                                     <div
                                         onClick={() => !isCurrentSession && onLoadReport(report.id)}
-                                        className={`block p-4 bg-gray-700 rounded-lg transition-all ${isCurrentSession ? 'ring-2 ring-blue-500 cursor-default' : 'hover:bg-gray-600 hover:ring-2 hover:ring-blue-500 cursor-pointer'}`}
+                                        className={`block p-4 bg-slate-50 rounded-lg transition-all ${isCurrentSession ? 'ring-2 ring-blue-500 cursor-default' : 'hover:bg-slate-100 hover:ring-2 hover:ring-blue-500 cursor-pointer'}`}
                                     >
                                         <div className="flex justify-between items-center">
                                             <div>
-                                                <p className="font-semibold text-white truncate">
+                                                <p className="font-semibold text-slate-800 truncate">
                                                   {isCurrentSession ? 
-                                                    <span className="text-blue-400 font-bold">[Current Session] </span> 
+                                                    <span className="text-blue-600 font-bold">[Current Session] </span> 
                                                     : null
                                                   }
                                                   {report.filename}
                                                 </p>
-                                                <p className="text-sm text-gray-400">
+                                                <p className="text-sm text-slate-500">
                                                     Last saved: {new Date(report.updatedAt).toLocaleString()}
                                                 </p>
                                             </div>
                                             {!isCurrentSession && (
                                               <button 
                                                   onClick={(e) => handleDelete(e, report.id, report.filename)}
-                                                  className="p-2 text-gray-400 rounded-full hover:bg-red-800/50 hover:text-red-300 transition-colors flex-shrink-0 ml-4"
+                                                  className="p-2 text-slate-500 rounded-full hover:bg-red-100 hover:text-red-600 transition-colors flex-shrink-0 ml-4"
                                                   title="Delete Report"
                                               >
                                                   <DeleteIcon />
@@ -101,7 +100,7 @@ export const HistoryPanel: React.FC<HistoryPanelProps> = ({ isOpen, onClose, rep
                         </ul>
                     )}
                 </div>
-                <p className="text-xs text-gray-500 mt-4 text-center">Your reports are saved securely in your browser's IndexedDB.</p>
+                <p className="text-xs text-slate-500 mt-4 text-center">Your reports are saved securely in your browser's IndexedDB.</p>
             </div>
         </div>
     );
