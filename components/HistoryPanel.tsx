@@ -1,5 +1,7 @@
+
 import React from 'react';
 import { ReportListItem } from '../types';
+import { CURRENT_SESSION_KEY } from '../storageService';
 
 interface HistoryPanelProps {
     isOpen: boolean;
@@ -61,30 +63,41 @@ export const HistoryPanel: React.FC<HistoryPanelProps> = ({ isOpen, onClose, rep
                         </div>
                     ) : (
                         <ul className="space-y-3">
-                            {reports.map(report => (
+                            {reports.map(report => {
+                                const isCurrentSession = report.id === CURRENT_SESSION_KEY;
+                                return (
                                 <li key={report.id}>
                                     <div
-                                        onClick={() => onLoadReport(report.id)}
-                                        className="block p-4 bg-gray-700 rounded-lg hover:bg-gray-600 hover:ring-2 hover:ring-blue-500 cursor-pointer transition-all"
+                                        onClick={() => !isCurrentSession && onLoadReport(report.id)}
+                                        className={`block p-4 bg-gray-700 rounded-lg transition-all ${isCurrentSession ? 'ring-2 ring-blue-500 cursor-default' : 'hover:bg-gray-600 hover:ring-2 hover:ring-blue-500 cursor-pointer'}`}
                                     >
                                         <div className="flex justify-between items-center">
                                             <div>
-                                                <p className="font-semibold text-white truncate">{report.filename}</p>
+                                                <p className="font-semibold text-white truncate">
+                                                  {isCurrentSession ? 
+                                                    <span className="text-blue-400 font-bold">[Current Session] </span> 
+                                                    : null
+                                                  }
+                                                  {report.filename}
+                                                </p>
                                                 <p className="text-sm text-gray-400">
-                                                    Last updated: {new Date(report.updatedAt).toLocaleString()}
+                                                    Last saved: {new Date(report.updatedAt).toLocaleString()}
                                                 </p>
                                             </div>
-                                            <button 
-                                                onClick={(e) => handleDelete(e, report.id, report.filename)}
-                                                className="p-2 text-gray-400 rounded-full hover:bg-red-800/50 hover:text-red-300 transition-colors flex-shrink-0 ml-4"
-                                                title="Delete Report"
-                                            >
-                                                <DeleteIcon />
-                                            </button>
+                                            {!isCurrentSession && (
+                                              <button 
+                                                  onClick={(e) => handleDelete(e, report.id, report.filename)}
+                                                  className="p-2 text-gray-400 rounded-full hover:bg-red-800/50 hover:text-red-300 transition-colors flex-shrink-0 ml-4"
+                                                  title="Delete Report"
+                                              >
+                                                  <DeleteIcon />
+                                              </button>
+                                            )}
                                         </div>
                                     </div>
                                 </li>
-                            ))}
+                                );
+                            })}
                         </ul>
                     )}
                 </div>

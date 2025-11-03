@@ -57,10 +57,10 @@ export const getReport = async (id: string): Promise<Report | undefined> => {
 export const getReportsList = async (): Promise<ReportListItem[]> => {
     try {
         const db = await getDb();
+        // Get all reports from the 'updatedAt' index to sort them by most recent
         const allReports = await db.getAllFromIndex(REPORTS_STORE_NAME, 'updatedAt');
         return allReports
-            // Filter out the "live" session from the history list
-            .filter(report => report.id !== CURRENT_SESSION_KEY)
+            // Sort descending (most recent first)
             .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
             .map(({ id, filename, createdAt, updatedAt }) => ({ id, filename, createdAt, updatedAt }));
     } catch (error) {
@@ -82,7 +82,7 @@ export const deleteReport = async (id: string): Promise<void> => {
 const defaultSettings: Settings = {
     apiKey: '',
     model: 'gemini-2.5-pro',
-    language: 'Mandarin'
+    language: 'English'
 };
 
 export const saveSettings = (settings: Settings): void => {

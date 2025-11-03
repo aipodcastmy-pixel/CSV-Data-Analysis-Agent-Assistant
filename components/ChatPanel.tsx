@@ -1,6 +1,5 @@
-
 import React, { useState, useEffect, useRef } from 'react';
-import { ProgressMessage, ChatMessage } from '../types';
+import { ProgressMessage, ChatMessage, AppView } from '../types';
 
 interface ChatPanelProps {
     progressMessages: ProgressMessage[];
@@ -11,6 +10,7 @@ interface ChatPanelProps {
     onToggleVisibility: () => void;
     onOpenSettings: () => void;
     onShowCard: (cardId: string) => void;
+    currentView: AppView;
 }
 
 const HideIcon: React.FC = () => (
@@ -27,7 +27,7 @@ const SettingsIcon: React.FC = () => (
 );
 
 
-export const ChatPanel: React.FC<ChatPanelProps> = ({ progressMessages, chatHistory, isBusy, onSendMessage, isApiKeySet, onToggleVisibility, onOpenSettings, onShowCard }) => {
+export const ChatPanel: React.FC<ChatPanelProps> = ({ progressMessages, chatHistory, isBusy, onSendMessage, isApiKeySet, onToggleVisibility, onOpenSettings, onShowCard, currentView }) => {
     const [input, setInput] = useState('');
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -48,9 +48,35 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ progressMessages, chatHist
         }
     };
 
+    const getPlaceholder = () => {
+        if (!isApiKeySet) return "Set API Key in settings to chat";
+        switch (currentView) {
+            // Fix: Removed 'data_preview' case as it's not a valid AppView type and merged its intent.
+            case 'analysis_dashboard':
+                return "Ask for a new analysis or data transformation...";
+            case 'file_upload':
+            default:
+                return "Upload a file to begin chatting";
+        }
+    };
+
     const renderMessage = (item: ProgressMessage | ChatMessage, index: number) => {
         if ('sender' in item) { // It's a ChatMessage
             const msg = item as ChatMessage;
+
+            if (msg.type === 'ai_thinking') {
+                return (
+                    <div key={`chat-${index}`} className="my-2 p-3 bg-gray-900/50 border border-blue-500/20 rounded-lg">
+                        <div className="flex items-center text-blue-300 mb-2">
+                             <span className="text-lg mr-2">🧠</span>
+                             <h4 className="font-semibold">AI's Initial Analysis</h4>
+                        </div>
+                        <p className="text-sm text-gray-300 whitespace-pre-wrap">{msg.text}</p>
+                    </div>
+                )
+            }
+
+
             if (msg.sender === 'user') {
                 return (
                     <div key={`chat-${index}`} className="flex justify-end">
@@ -130,13 +156,17 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ progressMessages, chatHist
                         type="text"
                         value={input}
                         onChange={(e) => setInput(e.target.value)}
-                        placeholder={isApiKeySet ? "Ask for a new analysis..." : "Set API Key in settings to chat"}
-                        disabled={isBusy || !isApiKeySet}
+                        placeholder={getPlaceholder()}
+                        disabled={isBusy || !isApiKeySet || currentView === 'file_upload'}
                         className="w-full bg-gray-700 border border-gray-600 rounded-md py-2 px-4 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
                     />
                 </form>
                  <div className="text-xs text-gray-500 mt-2">
-                    Examples: "Sum of sales by region", "Monthly user growth trend"
+                    {/* Fix: Replaced check against deprecated 'data_preview' view. The logic is updated to only show example prompts on the analysis dashboard. */}
+                    {currentView === 'analysis_dashboard' 
+                        ? 'e.g., "Sum of sales by region", or "Remove rows for USA"'
+                        : ''
+                    }
                 </div>
             </div>
         </div>

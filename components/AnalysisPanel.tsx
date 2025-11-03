@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { AnalysisCardData, ChartType } from '../types';
 import { AnalysisCard } from './AnalysisCard';
@@ -12,19 +11,23 @@ interface AnalysisPanelProps {
     onToggleDataVisibility: (cardId: string) => void;
     onTopNChange: (cardId: string, topN: number | null) => void;
     onHideOthersChange: (cardId: string, hide: boolean) => void;
+    onToggleLegendLabel: (cardId: string, label: string) => void;
 }
 
-export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({ cards, finalSummary, onChartTypeChange, onToggleDataVisibility, onTopNChange, onHideOthersChange }) => {
+export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({ cards, finalSummary, onChartTypeChange, onToggleDataVisibility, onTopNChange, onHideOthersChange, onToggleLegendLabel }) => {
     if (cards.length === 0) {
         return (
-            <div className="flex items-center justify-center h-64 border-2 border-dashed border-gray-600 rounded-lg">
-                <p className="text-gray-400">Your analysis results will appear here.</p>
+            <div className="flex items-center justify-center h-full">
+                 <div className="text-center p-4">
+                    <p className="text-gray-400">Your analysis results will appear here.</p>
+                    <p className="text-gray-500 text-sm mt-2">The AI is generating the initial analysis...</p>
+                 </div>
             </div>
         );
     }
 
     return (
-        <div>
+        <div className="p-1">
             {finalSummary && <FinalSummary summary={finalSummary} />}
             <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-6 mt-6">
                 {cards.map((card) => (
@@ -35,6 +38,7 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({ cards, finalSummar
                         onToggleDataVisibility={onToggleDataVisibility}
                         onTopNChange={onTopNChange}
                         onHideOthersChange={onHideOthersChange}
+                        onToggleLegendLabel={onToggleLegendLabel}
                     />
                 ))}
             </div>

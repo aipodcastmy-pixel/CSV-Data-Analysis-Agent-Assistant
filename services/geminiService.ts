@@ -1,7 +1,7 @@
-
 // Fix: Import GenerateContentResponse to correctly type the API response.
 import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
-import { AnalysisPlan, CsvData, ColumnProfile, AnalysisCardData, AiChatResponse, ChatMessage, Settings, DataPreparationPlan, CardContext } from '../types';
+import { AnalysisPlan, CsvData, ColumnProfile, AnalysisCardData, AiChatResponse, ChatMessage, Settings, DataPreparationPlan, CardContext, CsvRow, AppView } from '../types';
+import { executePlan } from "../utils/dataProcessor";
 
 // Helper for retrying API calls
 const withRetry = async <T>(fn: () => Promise<T>, retries = 2): Promise<T> => {
@@ -27,15 +27,28 @@ const planSchema = {
   items: {
     type: Type.OBJECT,
     properties: {
-      chartType: { type: Type.STRING, enum: ['bar', 'line', 'pie'], description: 'Type of chart to generate.' },
+      chartType: { type: Type.STRING, enum: ['bar', 'line', 'pie', 'doughnut', 'scatter'], description: 'Type of chart to generate.' },
       title: { type: Type.STRING, description: 'A concise title for the analysis.' },
       description: { type: Type.STRING, description: 'A brief explanation of what the analysis shows.' },
-      aggregation: { type: Type.STRING, enum: ['sum', 'count', 'avg'], description: 'The aggregation function to apply.' },
-      groupByColumn: { type: Type.STRING, description: 'The column to group data by (must be a categorical column).' },
-      valueColumn: { type: Type.STRING, description: 'The column to apply the aggregation on (must be a numerical column). Not needed for "count".' },
+      aggregation: { type: Type.STRING, enum: ['sum', 'count', 'avg'], description: 'The aggregation function to apply. Omit for scatter plots.' },
+      groupByColumn: { type: Type.STRING, description: 'The column to group data by (categorical). Omit for scatter plots.' },
+      valueColumn: { type: Type.STRING, description: 'The column for aggregation (numerical). Not needed for "count".' },
+      xValueColumn: { type: Type.STRING, description: 'The column for the X-axis of a scatter plot (numerical). Required for scatter plots.' },
+      yValueColumn: { type: Type.STRING, description: 'The column for the Y-axis of a scatter plot (numerical). Required for scatter plots.' },
+      defaultTopN: { type: Type.INTEGER, description: 'Optional. If the analysis has many categories, this suggests a default Top N view (e.g., 8).' },
+      defaultHideOthers: { type: Type.BOOLEAN, description: 'Optional. If using defaultTopN, suggests whether to hide the "Others" category by default.' },
     },
-    required: ['chartType', 'title', 'description', 'aggregation', 'groupByColumn'],
+    required: ['chartType', 'title', 'description'],
   },
+};
+
+const columnProfileSchema = {
+    type: Type.OBJECT,
+    properties: {
+        name: { type: Type.STRING, description: "The column name." },
+        type: { type: Type.STRING, enum: ['numerical', 'categorical'], description: "The data type of the column." },
+    },
+    required: ['name', 'type'],
 };
 
 const dataPreparationSchema = {
@@ -45,9 +58,14 @@ const dataPreparationSchema = {
         jsFunctionBody: {
             type: Type.STRING,
             description: "The body of a JavaScript function that takes one argument `data` (an array of objects) and returns the transformed array of objects. This code will be executed to clean and reshape the data. If no transformation is needed, this should be null."
-        }
+        },
+        outputColumns: {
+            type: Type.ARRAY,
+            description: "A list of column profiles describing the structure of the data AFTER the transformation. If no transformation is performed, this should be the same as the input column profiles.",
+            items: columnProfileSchema,
+        },
     },
-    required: ['explanation']
+    required: ['explanation', 'outputColumns']
 };
 
 export const generateDataPreparationPlan = async (
@@ -55,58 +73,52 @@ export const generateDataPreparationPlan = async (
     sampleData: CsvData['data'],
     settings: Settings
 ): Promise<DataPreparationPlan> => {
-    if (!settings.apiKey) return { explanation: "No transformation needed.", jsFunctionBody: null };
+    if (!settings.apiKey) return { explanation: "No transformation needed as API key is not set.", jsFunctionBody: null, outputColumns: columns };
     
     let lastError: Error | undefined;
 
     for(let i=0; i < 3; i++) { // Self-correction loop: 1 initial attempt + 2 retries
         try {
             const ai = new GoogleGenAI({ apiKey: settings.apiKey });
-            const columnNames = columns.map(c => c.name).join(', ');
             
             const prompt = `
-                You are an expert data engineer. Your task is to analyze a raw dataset and, if necessary, provide the body of a JavaScript function to clean and reshape it into a tidy, analysis-ready format.
+                You are an expert data engineer. Your task is to analyze a raw dataset and, if necessary, provide a JavaScript function to clean and reshape it into a tidy, analysis-ready format. CRITICALLY, you must also provide the schema of the NEW, transformed data.
         
-                A tidy format has:
-                1.  Each variable as a column.
-                2.  Each observation as a row.
-                3.  Each type of observational unit as a table.
+                A tidy format has: 1. Each variable as a column. 2. Each observation as a row.
         
                 Common problems to fix:
-                - **Summary Rows**: Filter out rows containing words like 'Total', 'Subtotal', 'Grand Total'.
-                - **Crosstab/Wide Format**: Unpivot data where column headers are values (e.g., years, regions, quarters).
-                - **Multi-header Rows**: Skip initial rows that are part of a complex header until the true header row is found (though PapaParse often handles this, assume the data arg is the parsed result and may contain junk rows at the start).
+                - **Summary Rows**: Filter out rows with 'Total', 'Subtotal'.
+                - **Crosstab/Wide Format**: Unpivot data where column headers are values (e.g., years, regions).
+                - **Multi-header Rows**: Skip initial junk rows.
         
-                Dataset Columns: ${columnNames}
+                Dataset Columns (Initial Schema):
+                ${JSON.stringify(columns, null, 2)}
         
                 Sample Data (up to 20 rows):
                 ${JSON.stringify(sampleData, null, 2)}
                 
-                ${lastError ? `On the previous attempt, your generated code failed with this error: "${lastError.message}". Please analyze the error and the data, then provide a corrected JavaScript function body.` : ''}
+                ${lastError ? `On the previous attempt, your generated code failed with this error: "${lastError.message}". Please analyze the error and the data, then provide a corrected response.` : ''}
 
                 Your task:
-                1.  Analyze the sample data and column names.
-                2.  Determine if any cleaning or reshaping is required.
-                3.  If yes, write the body of a JavaScript function to perform the transformation. This function receives one argument, \`data\`, which is the full dataset as an array of objects.
-                4.  Provide a concise, user-facing 'explanation' of what the function will do.
-                5.  If NO transformation is needed, return the explanation "No data transformation needed." and set 'jsFunctionBody' to null.
+                1.  **Analyze**: Look at the initial schema and sample data.
+                2.  **Plan Transformation**: Decide if cleaning or reshaping is needed.
+                3.  **Define Output Schema**: Determine the exact column names and types ('numerical' or 'categorical') of the data AFTER your transformation. This is the MOST important step.
+                4.  **Write Code**: If transformation is needed, write the body of a JavaScript function. This function receives one argument, \`data\`, and must return the transformed array of objects.
+                5.  **Explain**: Provide a concise 'explanation' of what you did.
         
-                **CRITICAL REQUIREMENT**: The JavaScript code you generate **MUST** include a \`return\` statement as its final operation to return the transformed array. For example: \`return myCleanedData;\`. If you do not include a \`return\` statement, the application will fail.
+                **CRITICAL REQUIREMENTS:**
+                - You MUST provide the \`outputColumns\` array. If you don't transform the data, \`outputColumns\` should be identical to the initial schema. If you do transform it, it must accurately reflect the new structure your code creates.
+                - Your JavaScript code MUST include a \`return\` statement as its final operation.
         
-                **Example 1: Cleaning needed**
-                - Data has a "Grand Total" row.
-                - Explanation: "Removed 1 summary row from the dataset."
-                - jsFunctionBody: "return data.filter(row => !row['Region'] || !row['Region'].toLowerCase().includes('total'));"
-        
-                **Example 2: Reshaping needed (crosstab)**
-                - Columns: ['Product', 'Q1_Sales', 'Q2_Sales']
-                - Explanation: "Reshaped the data from a wide (crosstab) format to a long format for analysis."
-                - jsFunctionBody: "const reshapedData = [];\\ndata.forEach(row => {\\n    const valueColumns = ['Q1_Sales', 'Q2_Sales'];\\n    valueColumns.forEach(valueCol => {\\n        const newRow = {\\n            'Product': row['Product'],\\n            'Quarter': valueCol,\\n            'Sales': row[valueCol]\\n        };\\n        reshapedData.push(newRow);\\n    });\\n});\\nreturn reshapedData;"
-        
-                Your response must be a valid JSON object adhering to the provided schema. The 'jsFunctionBody' should be a single-line JSON string (use \\n for newlines if needed).
+                **Example: Reshaping a crosstab**
+                - Initial Columns: [{'name': 'Product', 'type': 'categorical'}, {'name': 'Q1_Sales', 'type': 'numerical'}, {'name': 'Q2_Sales', 'type': 'numerical'}]
+                - Explanation: "Reshaped the data from a wide format to a long format."
+                - jsFunctionBody: "const r = []; data.forEach(row => { r.push({ Product: row.Product, Quarter: 'Q1', Sales: row.Q1_Sales }); r.push({ Product: row.Product, Quarter: 'Q2', Sales: row.Q2_Sales }); }); return r;"
+                - outputColumns: [{'name': 'Product', 'type': 'categorical'}, {'name': 'Quarter', 'type': 'categorical'}, {'name': 'Sales', 'type': 'numerical'}]
+
+                Your response must be a valid JSON object adhering to the provided schema.
             `;
         
-            // Wrap the API call in `withRetry` to handle transient network errors even during self-correction attempts.
             const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
                 model: settings.model,
                 contents: prompt,
@@ -134,35 +146,37 @@ export const generateDataPreparationPlan = async (
                     continue; // Go to next iteration of the loop to ask AI to fix code
                 }
             }
+            // If no code, ensure output columns match input columns if AI forgot.
+            if (!plan.jsFunctionBody && (!plan.outputColumns || plan.outputColumns.length === 0)) {
+                plan.outputColumns = columns;
+            }
             return plan; // No function body, success.
         
         } catch (error) {
             console.error(`Error in data preparation plan generation (Attempt ${i+1}):`, error);
             lastError = error as Error;
-            // If it's the last attempt, we'll fall through and throw the final error.
         }
     }
 
-    // If all retries/self-correction attempts failed
     throw new Error(`AI failed to generate a valid data preparation plan after multiple attempts. Last error: ${lastError?.message}`);
 };
 
-export const generateAnalysisPlans = async (
-    columns: ColumnProfile[], 
-    sampleData: CsvData['data'],
-    settings: Settings,
-    userPrompt?: string,
-    numPlans: number = 8
-): Promise<AnalysisPlan[]> => {
-    if (!settings.apiKey) throw new Error("API Key not provided.");
-    
-    const ai = new GoogleGenAI({ apiKey: settings.apiKey });
+// ... (rest of the file remains the same)
+// Fix: Import GenerateContentResponse to correctly type the API response.
+// ... (imports remain the same)
 
+// Helper function for the first step of the two-step plan generation process
+const generateCandidatePlans = async (
+    columns: ColumnProfile[],
+    sampleData: CsvRow[],
+    settings: Settings,
+    numPlans: number
+): Promise<AnalysisPlan[]> => {
+    const ai = new GoogleGenAI({ apiKey: settings.apiKey });
     const categoricalCols = columns.filter(c => c.type === 'categorical').map(c => c.name);
     const numericalCols = columns.filter(c => c.type === 'numerical').map(c => c.name);
-
     const prompt = `
-        You are a senior business intelligence analyst. Your task is to generate insightful analysis plans for a given dataset.
+        You are a senior business intelligence analyst specializing in ERP and financial data. Your task is to generate a diverse list of insightful analysis plan candidates for a given dataset by identifying common data patterns.
         
         Dataset columns:
         - Categorical: ${categoricalCols.join(', ')}
@@ -171,46 +185,133 @@ export const generateAnalysisPlans = async (
         Sample Data (first 5 rows):
         ${JSON.stringify(sampleData, null, 2)}
         
-        ${userPrompt ? `Based on the user's request: "${userPrompt}"` : ''}
+        Please generate up to ${numPlans} diverse analysis plans.
 
-        Please generate up to ${numPlans} diverse and meaningful analysis plan(s). 
-        Focus on creating high-value visualizations that would answer common business questions like 'What are our top revenue sources?', 'Where are the biggest costs?', 'What are the performance trends over time?', or 'How are items distributed across categories?'.
+        **CRITICAL: Think like a Business/ERP Analyst.**
+        1.  **Identify Key Metrics**: First, find the columns that represent measurable values. Look for names like 'VALUE', 'AMOUNT', 'SALES', 'COST', 'QUANTITY', 'PRICE'. These are almost always the columns you should be aggregating (e.g., using 'sum' or 'avg').
+        2.  **Identify Dimensions**: Next, find columns that describe the data. Look for names ending in 'CODE', 'ID', 'TYPE', 'CATEGORY', or containing 'NAME', 'DESCRIPTION', 'PROJECT', 'REGION'. These are your primary grouping columns (dimensions).
+        3.  **Find Relationships**: Codes and descriptions often go together (e.g., 'PROJECT_CODE' and 'PROJECT_DESCRIPTION'). A very valuable analysis is to group by a description column (which is more human-readable for a chart) and sum a value column.
+        4.  **Prioritize High-Value Aggregations**: Focus on creating plans that answer common business questions like 'What are our top revenue sources?', 'Where are the biggest costs?', or 'How are items distributed across categories?'. A simple 'count' is less valuable than a 'sum' of a 'VALUE' or 'AMOUNT' column.
+
+        **Example Task**: Given columns ['CODE', 'DESCRIPTION', 'PROJECT_CODE', 'VALUE'], a HIGH-QUALITY plan would be:
+        - Title: "Sum of VALUE by DESCRIPTION"
+        - Aggregation: 'sum'
+        - groupByColumn: 'DESCRIPTION'
+        - valueColumn: 'VALUE'
+        - Chart Type: 'bar'
         
-        For each plan, choose the most appropriate chartType ('bar', 'line', 'pie'). 
-        - Use 'line' for time series trends (e.g., grouping by date/month/year).
-        - Use 'pie' for part-to-whole compositions, ideally with 6 or fewer categories.
-        - Use 'bar' for most other comparisons between categories.
-        - For 'count' aggregations, you do not need a valueColumn.
-        - For 'sum' and 'avg', you must specify a valueColumn from the numerical columns.
-        - The groupByColumn must be from the categorical columns.
-        - Do not create plans that are too granular or have too many groups (e.g., grouping by a unique ID).
+        For each plan, choose the most appropriate chartType ('bar', 'line', 'pie', 'doughnut', 'scatter'). 
+        - Use 'line' for time series trends.
+        - Use 'bar' for most categorical comparisons, especially for "top X" style reports.
+        - Use 'pie' or 'doughnut' for compositions with few categories.
+        - Use 'scatter' to show the relationship between two numerical variables.
         
-        Your response must be a valid JSON array of plan objects, adhering to the provided schema. Do not include any other text or explanations.
+        Rules:
+        - For 'scatter' plots, you MUST provide 'xValueColumn' and 'yValueColumn' (both numerical) and you MUST NOT provide 'aggregation' or 'groupByColumn'.
+        - Do not create plans that are too granular (e.g., grouping by a unique ID column if there are thousands of them).
+        
+        Your response must be a valid JSON array of plan objects. Do not include any other text or explanations.
     `;
+    const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
+        model: settings.model,
+        contents: prompt,
+        config: {
+            responseMimeType: 'application/json',
+            responseSchema: planSchema,
+        },
+    }));
+    const jsonStr = response.text.trim();
+    const plans = JSON.parse(jsonStr) as AnalysisPlan[];
+    return plans.filter((p: any) => p.chartType && p.title);
+};
+
+// Helper function for the second step: the AI Quality Gate
+const refineAndConfigurePlans = async (
+    plansWithData: { plan: AnalysisPlan; aggregatedSample: CsvRow[] }[],
+    settings: Settings
+): Promise<AnalysisPlan[]> => {
+    const ai = new GoogleGenAI({ apiKey: settings.apiKey });
+    const prompt = `
+        You are a Quality Review Data Analyst. Your job is to review a list of proposed analysis plans and their data samples. Your goal is to select ONLY the most insightful and readable charts for the end-user, and configure them for the best default view.
+
+        **Review Criteria & Rules:**
+        1.  **Discard Low-Value Charts**: This is your most important task. You MUST discard any plan that is not genuinely insightful.
+            - **Example of a low-value chart**: A bar chart where all values are nearly identical (e.g., [77, 77, 77, 76, 78]). This shows uniformity but is not a useful visualization. DISCARD IT.
+            - **Example of another low-value chart**: A pie/doughnut chart where one category makes up over 95% of the total. This is not insightful. DISCARD IT.
+        2.  **Discard Unreadable Charts**: If a chart groups by a high-cardinality column resulting in too many categories to be readable (e.g., more than 50 tiny bars), discard it unless it's a clear time-series line chart.
+        3.  **Configure for Readability**: For good, insightful charts that have a moderate number of categories (e.g., 15 to 50), you MUST add default settings to make them readable. Set \`defaultTopN\` to 8 and \`defaultHideOthers\` to \`true\`.
+        4.  **Keep Good Charts**: If a chart is insightful and has a reasonable number of categories (e.g., under 15), keep it as is without adding default settings.
+        5.  **Return the Result**: Your final output must be an array of ONLY the good, configured plan objects. Do not include the discarded plans.
+
+        **Proposed Plans and Data Samples:**
+        ${JSON.stringify(plansWithData, null, 2)}
+
+        Your response must be a valid JSON array of the refined and configured plan objects, adhering to the provided schema. Do not include any other text or explanations.
+    `;
+    const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
+        model: settings.model,
+        contents: prompt,
+        config: {
+            responseMimeType: 'application/json',
+            responseSchema: planSchema,
+        },
+    }));
+    const jsonStr = response.text.trim();
+    return JSON.parse(jsonStr) as AnalysisPlan[];
+};
+
+
+export const generateAnalysisPlans = async (
+    columns: ColumnProfile[], 
+    sampleData: CsvData['data'],
+    settings: Settings
+): Promise<AnalysisPlan[]> => {
+    if (!settings.apiKey) throw new Error("API Key not provided.");
 
     try {
-        // Fix: Explicitly type the response to avoid 'unknown' type on .text property.
-        const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
-            model: settings.model,
-            contents: prompt,
-            config: {
-                responseMimeType: 'application/json',
-                responseSchema: planSchema,
-            },
-        }));
+        // Step 1: Generate a broad list of candidate plans
+        const candidatePlans = await generateCandidatePlans(columns, sampleData, settings, 12);
+        if (candidatePlans.length === 0) return [];
 
-        const jsonStr = response.text.trim();
-        const plans = JSON.parse(jsonStr);
+        // Step 2: Execute plans on sample data to get data for the AI to review
+        const sampleCsvData = { fileName: 'sample', data: sampleData };
+        const plansWithDataForReview = candidatePlans.map(plan => {
+            try {
+                const aggregatedSample = executePlan(sampleCsvData, plan);
+                return { plan, aggregatedSample: aggregatedSample.slice(0, 20) }; // Limit sample size for the prompt
+            } catch (e) {
+                return null;
+            }
+        }).filter((p): p is { plan: AnalysisPlan; aggregatedSample: CsvRow[] } => p !== null && p.aggregatedSample.length > 0);
+        
+        if (plansWithDataForReview.length === 0) return candidatePlans.slice(0, 4); // Fallback if all executions fail
+        
+        // Step 3: AI Quality Gate - Ask AI to review and refine the plans
+        const refinedPlans = await refineAndConfigurePlans(plansWithDataForReview, settings);
 
-        // Basic validation
-        return plans.filter((p: any) => 
-            p.chartType && p.title && p.aggregation && p.groupByColumn
-        );
+        // Ensure we have a minimum number of plans
+        let finalPlans = refinedPlans;
+        if (finalPlans.length < 4 && candidatePlans.length > finalPlans.length) {
+            const refinedPlanTitles = new Set(finalPlans.map(p => p.title));
+            const fallbackPlans = candidatePlans.filter(p => !refinedPlanTitles.has(p.title));
+            const needed = 4 - finalPlans.length;
+            finalPlans.push(...fallbackPlans.slice(0, needed));
+        }
+
+        return finalPlans.slice(0, 12); // Return between 4 and 12 of the best plans
+
     } catch (error) {
-        console.error("Error generating analysis plans:", error);
-        throw new Error("Failed to generate analysis plans from AI.");
+        console.error("Error during two-step analysis plan generation:", error);
+        // Fallback to simpler generation if the complex one fails
+        try {
+            return await generateCandidatePlans(columns, sampleData, settings, 8);
+        } catch (fallbackError) {
+             console.error("Fallback plan generation also failed:", fallbackError);
+             throw new Error("Failed to generate any analysis plans from AI.");
+        }
     }
 };
+
 
 export const generateSummary = async (title: string, data: CsvData['data'], settings: Settings): Promise<string> => {
      if (!settings.apiKey) return 'AI Summaries are disabled. No API Key provided.';
@@ -248,6 +349,41 @@ export const generateSummary = async (title: string, data: CsvData['data'], sett
         return "Failed to generate AI summary.";
     }
 };
+
+// NEW: Function for the AI to create its core analysis summary (transparent thinking)
+export const generateCoreAnalysisSummary = async (cardContext: CardContext[], columns: ColumnProfile[], settings: Settings): Promise<string> => {
+    if (!settings.apiKey || cardContext.length === 0) return "Could not generate an initial analysis summary.";
+
+    const ai = new GoogleGenAI({ apiKey: settings.apiKey });
+    const prompt = `
+        You are a senior data analyst. After performing an initial automated analysis of a dataset, your task is to create a concise "Core Analysis Briefing". This briefing will be shown to the user and will serve as the shared foundation of understanding for your conversation.
+
+        Based on the columns and the analysis cards you have just generated, summarize the dataset's primary characteristics.
+        
+        Your briefing should cover:
+        1.  **Primary Subject**: What is this data fundamentally about? (e.g., "This dataset appears to be about online sales transactions...")
+        2.  **Key Metrics**: What are the most important numerical columns? (e.g., "...where the key metrics are 'Sale_Amount' and 'Profit'.")
+        3.  **Core Dimensions**: What are the main categorical columns used for analysis? (e.g., "The data is primarily broken down by 'Region' and 'Product_Category'.")
+        4.  **Suggested Focus**: Based on the initial charts, what should be the focus of further analysis? (e.g., "Future analysis should focus on identifying the most profitable regions and product categories.")
+
+        **Available Information:**
+        - **Dataset Columns**: ${JSON.stringify(columns.map(c => c.name))}
+        - **Generated Analysis Cards**: ${JSON.stringify(cardContext, null, 2)}
+
+        Produce a single, concise paragraph in ${settings.language}. This is your initial assessment that you will share with your human counterpart.
+    `;
+    try {
+        const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
+            model: settings.model,
+            contents: prompt,
+        }));
+        return response.text;
+    } catch (error) {
+        console.error("Error generating core analysis summary:", error);
+        return "An error occurred while the AI was forming its initial analysis.";
+    }
+};
+
 
 export const generateFinalSummary = async (cards: AnalysisCardData[], settings: Settings): Promise<string> => {
     if (!settings.apiKey) return 'AI Summaries are disabled. No API Key provided.';
@@ -288,14 +424,18 @@ export const generateFinalSummary = async (cards: AnalysisCardData[], settings: 
 const singlePlanSchema = {
     type: Type.OBJECT,
     properties: {
-      chartType: { type: Type.STRING, enum: ['bar', 'line', 'pie'], description: 'Type of chart to generate.' },
+      chartType: { type: Type.STRING, enum: ['bar', 'line', 'pie', 'doughnut', 'scatter'], description: 'Type of chart to generate.' },
       title: { type: Type.STRING, description: 'A concise title for the analysis.' },
       description: { type: Type.STRING, description: 'A brief explanation of what the analysis shows.' },
-      aggregation: { type: Type.STRING, enum: ['sum', 'count', 'avg'], description: 'The aggregation function to apply.' },
-      groupByColumn: { type: Type.STRING, description: 'The column to group data by (must be a categorical column).' },
-      valueColumn: { type: Type.STRING, description: 'The column to apply the aggregation on (must be a numerical column). Not needed for "count".' },
+      aggregation: { type: Type.STRING, enum: ['sum', 'count', 'avg'], description: 'The aggregation function to apply. Omit for scatter plots.' },
+      groupByColumn: { type: Type.STRING, description: 'The column to group data by (categorical). Omit for scatter plots.' },
+      valueColumn: { type: Type.STRING, description: 'The column for aggregation (numerical). Not needed for "count".' },
+      xValueColumn: { type: Type.STRING, description: 'The column for the X-axis of a scatter plot (numerical). Required for scatter plots.' },
+      yValueColumn: { type: Type.STRING, description: 'The column for the Y-axis of a scatter plot (numerical). Required for scatter plots.' },
+      defaultTopN: { type: Type.INTEGER, description: 'Optional. If the analysis has many categories, this suggests a default Top N view (e.g., 8).' },
+      defaultHideOthers: { type: Type.BOOLEAN, description: 'Optional. If using defaultTopN, suggests whether to hide the "Others" category by default.' },
     },
-    required: ['chartType', 'title', 'description', 'aggregation', 'groupByColumn'],
+    required: ['chartType', 'title', 'description'],
 };
 
 
@@ -308,7 +448,7 @@ const multiActionChatResponseSchema = {
             items: {
                 type: Type.OBJECT,
                 properties: {
-                    responseType: { type: Type.STRING, enum: ['text_response', 'plan_creation', 'dom_action'] },
+                    responseType: { type: Type.STRING, enum: ['text_response', 'plan_creation', 'dom_action', 'execute_js_code', 'proceed_to_analysis'] },
                     text: { type: Type.STRING, description: "A conversational text response to the user. Required for 'text_response'." },
                     cardId: { type: Type.STRING, description: "Optional. The ID of the card this text response refers to. Used to link text to a specific chart." },
                     plan: {
@@ -319,19 +459,30 @@ const multiActionChatResponseSchema = {
                         type: Type.OBJECT,
                         description: "A DOM manipulation action for the frontend to execute. Required for 'dom_action'.",
                         properties: {
-                            toolName: { type: Type.STRING, enum: ['highlightCard', 'changeCardChartType', 'showCardData'] },
+                            toolName: { type: Type.STRING, enum: ['highlightCard', 'changeCardChartType', 'showCardData', 'filterCard'] },
                             args: {
                                 type: Type.OBJECT,
                                 description: 'Arguments for the tool. e.g., { cardId: "..." }',
                                 properties: {
                                     cardId: { type: Type.STRING, description: 'The ID of the target analysis card.' },
-                                    newType: { type: Type.STRING, enum: ['bar', 'line', 'pie'], description: "The new chart type. Required for 'changeCardChartType'." },
-                                    visible: { type: Type.BOOLEAN, description: "Whether to show or hide the data table. Required for 'showCardData'." },
+                                    newType: { type: Type.STRING, enum: ['bar', 'line', 'pie', 'doughnut', 'scatter'], description: "For 'changeCardChartType'." },
+                                    visible: { type: Type.BOOLEAN, description: "For 'showCardData'." },
+                                    column: { type: Type.STRING, description: "For 'filterCard', the column to filter on." },
+                                    values: { type: Type.ARRAY, items: { type: Type.STRING }, description: "For 'filterCard', the values to include." },
                                 },
                                 required: ['cardId'],
                             },
                         },
                         required: ['toolName', 'args']
+                    },
+                    code: {
+                        type: Type.OBJECT,
+                        description: "For 'execute_js_code', the code to run.",
+                        properties: {
+                            explanation: { type: Type.STRING, description: "A brief, user-facing explanation of what the code will do." },
+                            jsFunctionBody: { type: Type.STRING, description: "The body of a JavaScript function that takes 'data' and returns the transformed 'data'." },
+                        },
+                        required: ['explanation', 'jsFunctionBody']
                     }
                 },
                 required: ['responseType']
@@ -347,7 +498,10 @@ export const generateChatResponse = async (
     chatHistory: ChatMessage[],
     userPrompt: string,
     cardContext: CardContext[],
-    settings: Settings
+    settings: Settings,
+    aiCoreAnalysisSummary: string | null,
+    currentView: AppView,
+    rawDataSample: CsvRow[]
 ): Promise<AiChatResponse> => {
     if (!settings.apiKey) {
         return { actions: [{ responseType: 'text_response', text: 'Cloud AI is disabled. API Key not provided.' }] };
@@ -360,46 +514,60 @@ export const generateChatResponse = async (
     const history = chatHistory.map(m => `${m.sender}: ${m.text}`).join('\n');
 
     const prompt = `
-        You are an expert data analyst and business strategist. Your task is to respond to the user by providing insightful analysis and breaking down your response into a sequence of actions. Your responses should be in ${settings.language}.
+        You are an expert data analyst and business strategist. Your task is to respond to the user by providing insightful analysis and breaking down your response into a sequence of actions. Your responses should be in ${settings.language}. The user is in a unified dashboard where they can see both the analysis charts and the raw data spreadsheet at all times.
 
-        Your entire knowledge base consists of the user's data and the analysis cards currently on the screen.
-        
-        Analytical Principles:
-        1.  **Synthesize, Don't Just Describe**: Do not simply state what a chart shows (e.g., "This card shows sales by department"). Instead, connect the dots between multiple cards if relevant to provide a cohesive narrative.
-        2.  **Explain the "Why" and "So What?"**: Go beyond the numbers. Explain what they mean for the business. Instead of "Office Expenses has 77 transactions", say "Office Expenses is a high-frequency category with 77 transactions, likely representing numerous small operational purchases. Its average value is 93.86, suggesting these are routine costs."
-        3.  **Be Proactive**: Identify and highlight key trends, significant outliers, or interesting patterns, even if the user doesn't explicitly ask. Frame your findings as business insights.
+        **CORE ANALYSIS BRIEFING (Your Memory):**
+        This is your core understanding of the dataset, which you must use to guide all your responses.
+        ---
+        ${aiCoreAnalysisSummary || "No core analysis has been performed yet. This is your first look at the data."}
+        ---
+
+        **Guiding Principles & Common Sense:**
+        1.  **Synthesize and Interpret**: Do not simply state what a chart shows. Connect insights between cards using your Core Analysis Briefing as a guide. Explain the business implications—the "so what?".
+        2.  **Understand Intent & Sanity-Check**: Grasp the user's underlying goal. If they ask for something that doesn't make sense with the data (e.g., "show profit" when no profit column exists), gently explain why it's not possible and suggest an alternative.
+        3.  **Be Proactive**: Identify and highlight key trends, significant outliers, or interesting patterns. Frame findings as actionable business insights.
         4.  **Use Business Language**: Talk about performance, trends, contribution, outliers, and potential impact.
 
-        You have access to a dataset with:
-        - Categorical columns: ${categoricalCols.join(', ')}
-        - Numerical columns: ${numericalCols.join(', ')}
+        **Your Knowledge Base (Real-time Info):**
+        - **Dataset Columns**:
+            - Categorical: ${categoricalCols.join(', ')}
+            - Numerical: ${numericalCols.join(', ')}
+        - **Analysis Cards on Screen**:
+            ${cardContext.length > 0 ? JSON.stringify(cardContext, null, 2) : "No cards yet."}
+            (Use the aggregatedDataSample to answer questions about a card's content).
+        - **Raw Data Sample (first 20 rows for context):**
+            ${rawDataSample.length > 0 ? JSON.stringify(rawDataSample, null, 2) : "No raw data available."}
+            (Use this sample to verify specific details or answer questions about individual rows. Do not assume it is the complete dataset.)
 
-        The following analysis cards are currently displayed on the screen. Each card has an ID, a title, and a sample of its aggregated data. Use this data sample to answer questions about the card's content.
-        ${cardContext.length > 0 ? JSON.stringify(cardContext, null, 2) : "No cards yet."}
-
-        Conversation history:
+        **Conversation history:**
         ${history}
 
-        The user's latest message is: "${userPrompt}"
+        **The user's latest message is:** "${userPrompt}"
 
-        Your task is to respond by creating a sequence of one or more actions. You have three action types:
-        1.  **text_response**: For general conversation, questions, or comments. Use this to explain a chart's data. If your text response is explaining or referencing a specific card, you MUST include its 'cardId'.
-        2.  **plan_creation**: If the user asks for a NEW chart or data aggregation.
-        3.  **dom_action**: If the user wants to INTERACT with an EXISTING card (e.g., "highlight," "show data for," "change to pie chart").
+        **Your Available Actions & Tools:**
+        You MUST respond by creating a sequence of one or more actions.
+        1.  **text_response**: For conversation. If your text explains a specific card, you MUST include its 'cardId'.
+        2.  **plan_creation**: To create a NEW chart. If creating a bar/pie/doughnut chart with a \`groupByColumn\` that has many categories, you should set a \`defaultTopN\` of 8 and \`defaultHideOthers\` to \`true\` to ensure the chart is readable.
+        3.  **dom_action**: To INTERACT with an EXISTING card. Available tools:
+            - **highlightCard**: Scrolls to and highlights a card. Args: \`{ "cardId": "..." }\`.
+            - **changeCardChartType**: Changes a card's chart. Args: \`{ "cardId": "...", "newType": "..." }\`.
+            - **showCardData**: Shows/hides a card's data table. Args: \`{ "cardId": "...", "visible": boolean }\`.
+            - **filterCard**: Applies a filter to a card. Use this to show a subset of data. Args: \`{ "cardId": "...", "column": "...", "values": ["..."] }\`. To clear a filter, send an empty values array.
+        4.  **execute_js_code**: For COMPLEX TASKS that aggregations cannot handle, like creating new derived columns or cleaning data. You can use this tool AT ANY TIME.
+            - **IMPORTANT**: When you use this tool, the ENTIRE dataset is updated, and all charts on the screen will automatically regenerate to reflect the changes. You should inform the user of this.
+            - **Use Case**: User says "Create a 'Cost per Transaction' column" or "Remove all rows for the USA".
+            - **Your Action**: Generate an 'execute_js_code' action. The \`jsFunctionBody\` should be a string of JS code, like \`return data.map(row => ({ ...row, 'Cost per Transaction': row['Total Spend'] / row['Transactions'] }));\`
+            - The function you write will receive the entire dataset as an array of objects called \`data\` and MUST return the transformed array.
+        5.  **proceed_to_analysis**: This action is DEPRECATED and should not be used. The analysis runs automatically. If the user asks to proceed, just confirm that the analysis is already done.
 
-        Available 'dom_action' tools:
-        - **highlightCard**: Scrolls to and highlights a card. Args: { "cardId": "..." }.
-        - **changeCardChartType**: Changes a card's chart. Args: { "cardId": "...", "newType": "bar" | "line" | "pie" }.
-        - **showCardData**: Shows/hides the data table for a card. Args: { "cardId": "...", "visible": boolean }.
-
-        Decision-making process:
+        **Decision-Making Process:**
         - THINK STEP-BY-STEP. A single user request might require multiple actions.
-        - **Multi-step example**: If user says "Highlight the monthly sales card and explain the trend", you must return THREE actions in the array:
-            1. A 'text_response' action that says something like "Certainly, I'll highlight that card for you."
-            2. A 'dom_action' to 'highlightCard' for the correct cardId.
-            3. A 'text_response' action with the explanation of the trend (which you derive from the aggregatedDataSample for that card), which MUST include the 'cardId' of the monthly sales card.
-        - Always prefer to be conversational. Use 'text_response' actions to acknowledge the user and explain what you are doing.
-        - If the user asks a question about a card's data, use the provided 'aggregatedDataSample' to find the answer and respond with a 'text_response' that follows your Analytical Principles and includes the relevant 'cardId'.
+        - **Multi-step example**: If user says "On the sales card, show me only Marketing and Engineering, and explain the result", you might return THREE actions:
+            1. A 'dom_action' to 'filterCard' for the correct cardId, column, and values.
+            2. A 'text_response' action that says something like "I've filtered the card for you."
+            3. A 'text_response' action with the explanation of the filtered data, including the 'cardId'.
+        - If the user asks to modify the data (e.g., "delete rows", "create a column"), use 'execute_js_code'. You should always accompany this with a 'text_response' to confirm what you've done, e.g., "I've removed those rows and updated all the charts for you."
+        - Always be conversational. Use 'text_response' actions to acknowledge the user and explain what you are doing.
 
         Your output MUST be a single JSON object with an "actions" key containing an array of action objects.
     `;

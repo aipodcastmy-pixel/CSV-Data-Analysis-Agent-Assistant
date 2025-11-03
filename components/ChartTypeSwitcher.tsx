@@ -28,12 +28,24 @@ const ChartIcon: React.FC<{ type: ChartType }> = ({ type }) => {
                     <path d="M12 2.252A8.014 8.014 0 0117.748 8H12V2.252z" />
                 </svg>
             );
+        case 'doughnut':
+             return (
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM7 10a3 3 0 116 0 3 3 0 01-6 0z" clipRule="evenodd" />
+                </svg>
+            );
+        case 'scatter':
+            return (
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                  <path d="M5 3a2 2 0 100 4 2 2 0 000-4zM5 13a2 2 0 100 4 2 2 0 000-4zM15 3a2 2 0 100 4 2 2 0 000-4zM15 13a2 2 0 100 4 2 2 0 000-4zM8 8a2 2 0 100 4 2 2 0 000-4zM12 8a2 2 0 100 4 2 2 0 000-4z" />
+                </svg>
+            );
         default:
             return null;
     }
 };
 
-const chartTypes: ChartType[] = ['bar', 'line', 'pie'];
+const chartTypes: ChartType[] = ['bar', 'line', 'pie', 'doughnut', 'scatter'];
 
 export const ChartTypeSwitcher: React.FC<ChartTypeSwitcherProps> = ({ currentType, onChange }) => {
     return (

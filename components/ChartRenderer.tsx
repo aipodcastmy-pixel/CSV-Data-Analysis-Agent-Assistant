@@ -1,6 +1,6 @@
 
 import React, { useEffect, useRef, useImperativeHandle, forwardRef } from 'react';
-import { ChartType, CsvRow } from '../types';
+import { ChartType, CsvRow, AnalysisPlan } from '../types';
 
 declare const Chart: any;
 declare const ChartZoom: any;
@@ -11,8 +11,7 @@ export interface ChartRendererHandle {
 interface ChartRendererProps {
     chartType: ChartType;
     data: CsvRow[];
-    groupByKey: string;
-    valueKey: string;
+    plan: AnalysisPlan;
     selectedIndices: number[];
     onElementClick: (index: number, event: MouseEvent) => void;
     onZoomChange: (isZoomed: boolean) => void;
@@ -31,7 +30,7 @@ const DESELECTED_BORDER_COLOR = 'rgba(107, 114, 128, 0.5)';
 
 let zoomPluginRegistered = false;
 
-export const ChartRenderer = forwardRef<ChartRendererHandle, ChartRendererProps>(({ chartType, data, groupByKey, valueKey, selectedIndices, onElementClick, onZoomChange, disableAnimation }, ref) => {
+export const ChartRenderer = forwardRef<ChartRendererHandle, ChartRendererProps>(({ chartType, data, plan, selectedIndices, onElementClick, onZoomChange, disableAnimation }, ref) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const chartRef = useRef<any>(null);
 
@@ -48,7 +47,7 @@ export const ChartRenderer = forwardRef<ChartRendererHandle, ChartRendererProps>
     }));
 
     useEffect(() => {
-        if (!canvasRef.current) return;
+        if (!canvasRef.current || !plan) return;
         
         if (chartRef.current) {
             chartRef.current.destroy();
@@ -56,9 +55,9 @@ export const ChartRenderer = forwardRef<ChartRendererHandle, ChartRendererProps>
 
         const ctx = canvasRef.current.getContext('2d');
         if (!ctx) return;
-
-        const labels = data.map(d => d[groupByKey]);
-        const values = data.map(d => d[valueKey]);
+        
+        const { groupByColumn, valueColumn, xValueColumn, yValueColumn } = plan;
+        const valueKey = valueColumn || 'count';
 
         const hasSelection = selectedIndices.length > 0;
         
@@ -90,9 +89,7 @@ export const ChartRenderer = forwardRef<ChartRendererHandle, ChartRendererProps>
             },
             plugins: {
                 legend: {
-                    labels: {
-                        color: '#d1d5db' 
-                    }
+                    display: false
                 },
                 tooltip: {
                     backgroundColor: '#374151', 
@@ -137,6 +134,8 @@ export const ChartRenderer = forwardRef<ChartRendererHandle, ChartRendererProps>
              }
         };
 
+        const labels = groupByColumn ? data.map(d => d[groupByColumn]) : [];
+        const values = valueKey ? data.map(d => d[valueKey]) : [];
 
         switch (chartType) {
             case 'bar':
@@ -182,8 +181,9 @@ export const ChartRenderer = forwardRef<ChartRendererHandle, ChartRendererProps>
                 });
                 break;
             case 'pie':
+            case 'doughnut':
                 chartRef.current = new Chart(ctx, {
-                    type: 'pie',
+                    type: chartType,
                     data: {
                         labels,
                         datasets: [{
@@ -201,6 +201,42 @@ export const ChartRenderer = forwardRef<ChartRendererHandle, ChartRendererProps>
                     }
                 });
                 break;
+            case 'scatter':
+                if (!xValueColumn || !yValueColumn) break;
+                const scatterData = data.map(d => ({
+                    x: d[xValueColumn],
+                    y: d[yValueColumn]
+                }));
+
+                 chartRef.current = new Chart(ctx, {
+                    type: 'scatter',
+                    data: {
+                        datasets: [{
+                            label: `${yValueColumn} vs ${xValueColumn}`,
+                            data: scatterData,
+                            backgroundColor: getColors(BG_COLORS),
+                            borderColor: getBorderColors(BORDER_COLORS),
+                            borderWidth: 1.5,
+                            pointRadius: hasSelection ? data.map((_, i) => selectedIndices.includes(i) ? 7 : 4) : 5,
+                            pointHoverRadius: hasSelection ? data.map((_, i) => selectedIndices.includes(i) ? 9 : 6) : 7,
+                        }]
+                    },
+                    options: {
+                        ...commonOptions,
+                        scales: {
+                            x: {
+                                ...commonOptions.scales.x,
+                                title: { display: true, text: xValueColumn, color: '#9ca3af' }
+                            },
+                             y: {
+                                ...commonOptions.scales.y,
+                                title: { display: true, text: yValueColumn, color: '#9ca3af' }
+                            }
+                        },
+                        plugins: { ...commonOptions.plugins, zoom: zoomOptions }
+                    }
+                });
+                break;
             default:
                 break;
         }
@@ -211,7 +247,7 @@ export const ChartRenderer = forwardRef<ChartRendererHandle, ChartRendererProps>
             }
         };
 
-    }, [chartType, data, groupByKey, valueKey, selectedIndices, onElementClick, onZoomChange, disableAnimation]);
+    }, [chartType, data, plan, selectedIndices, onElementClick, onZoomChange, disableAnimation]);
 
 
     return <canvas ref={canvasRef} />;

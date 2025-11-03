@@ -1,3 +1,4 @@
+
 import { CsvData, CsvRow, AnalysisPlan, ColumnProfile, AggregationType } from '../types';
 
 declare const Papa: any;
@@ -20,6 +21,13 @@ const parseNumericValue = (value: any): number | null => {
     
     const num = Number(cleanedString);
     return isNaN(num) ? null : num;
+};
+
+const looksLikeDate = (value: any): boolean => {
+    if (typeof value !== 'string' || !value) return false;
+    // Simple check for common date formats like YYYY-MM-DD, MM/DD/YYYY etc.
+    // And ensure it's a valid date parsable by Date constructor.
+    return !isNaN(new Date(value).getTime()) && /[0-9]{1,4}[-/][0-9]{1,2}[-/][0-9]{1,4}/.test(value);
 };
 
 export const applyTopNWithOthers = (data: CsvRow[], groupByKey: string, valueKey: string, topN: number): CsvRow[] => {
@@ -138,7 +146,25 @@ export const executeJavaScriptDataTransform = (data: CsvRow[], jsFunctionBody: s
 
 
 export const executePlan = (data: CsvData, plan: AnalysisPlan): CsvRow[] => {
+    // Handle scatter plots separately as they don't aggregate data
+    if (plan.chartType === 'scatter') {
+        const { xValueColumn, yValueColumn } = plan;
+        if (!xValueColumn || !yValueColumn) {
+            throw new Error("Scatter plot plan is missing xValueColumn or yValueColumn.");
+        }
+        return data.data
+            .map(row => ({
+                [xValueColumn]: parseNumericValue(row[xValueColumn]),
+                [yValueColumn]: parseNumericValue(row[yValueColumn]),
+            }))
+            .filter(p => p[xValueColumn] !== null && p[yValueColumn] !== null) as CsvRow[];
+    }
+
     const { groupByColumn, valueColumn, aggregation } = plan;
+    if (!groupByColumn || !aggregation) {
+        throw new Error("Analysis plan is missing groupByColumn or aggregation type for non-scatter chart.");
+    }
+
 
     const groups: { [key: string]: number[] } = {};
 
@@ -189,6 +215,11 @@ export const executePlan = (data: CsvData, plan: AnalysisPlan): CsvRow[] => {
         });
     }
     
-    const finalValueColumn = valueColumn || 'count';
-    return aggregatedResult.sort((a, b) => (Number(b[finalValueColumn]) || 0) - (Number(a[finalValueColumn]) || 0));
+    // Intelligent Sorting: If it's a line chart with a date axis, sort chronologically. Otherwise, sort by value.
+    if (plan.chartType === 'line' && aggregatedResult.length > 0 && looksLikeDate(aggregatedResult[0][groupByColumn])) {
+        return aggregatedResult.sort((a, b) => new Date(String(a[groupByColumn])).getTime() - new Date(String(b[groupByColumn])).getTime());
+    } else {
+        const finalValueColumn = valueColumn || 'count';
+        return aggregatedResult.sort((a, b) => (Number(b[finalValueColumn]) || 0) - (Number(a[finalValueColumn]) || 0));
+    }
 };
