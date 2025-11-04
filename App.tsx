@@ -492,7 +492,7 @@ const App: React.FC = () => {
             const cardContext: CardContext[] = appState.analysisCards.map(c => ({
                 id: c.id,
                 title: c.plan.title,
-                aggregatedDataSample: c.aggregatedData.slice(0, 10),
+                aggregatedDataSample: c.aggregatedData.slice(0, 100),
             }));
 
             const response = await generateChatResponse(

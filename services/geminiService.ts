@@ -714,7 +714,7 @@ export const generateChatResponse = async (
 
     const categoricalCols = columns.filter(c => c.type === 'categorical').map(c => c.name);
     const numericalCols = columns.filter(c => c.type === 'numerical').map(c => c.name);
-    const recentHistory = chatHistory.slice(-4).map(m => `${m.sender === 'ai' ? 'You' : 'User'}: ${m.text}`).join('\n');
+    const recentHistory = chatHistory.slice(-10).map(m => `${m.sender === 'ai' ? 'You' : 'User'}: ${m.text}`).join('\n');
     
     try {
         let jsonStr: string;
@@ -737,14 +737,14 @@ ${longTermMemory.length > 0 ? longTermMemory.join('\n---\n') : "No specific long
 3.  **Handle Ambiguous Follow-ups CRITICALLY**: If the user's query is very short (e.g., "why?", "color?", "model?"), it is a follow-up question. You MUST connect it to the most recent relevant topic by searching the memory and conversation history and then synthesizing a complete answer as per Principle #2.
     - **CORRECT Example**: Memory contains "User's car is a Proton S70". Recent conversation includes "User: i got red car". User now asks "color?". You MUST synthesize and respond "Your car is red." You MUST NOT ask "what color is it?".
 4.  **Analyze Data as a Second Step**: ONLY if the query cannot be answered by recalling facts, proceed to analyze the dataset. Connect insights between cards and explain the business implications (the "so what?").
-5.  **Distinguish Between Raw and Aggregated Data**: The 'Raw Data Sample' is for understanding columns and individual row examples. The 'Analysis Cards' show summarized, aggregated data. Use the raw sample for questions about specific entries or data formats. Use aggregated data for questions about trends, totals, and comparisons.
+5.  **Distinguish Between Raw and Aggregated Data**: The 'Raw Data Sample' shows the first 20 rows of the original file. The 'Analysis Cards' contain a sample of up to 100 rows of the summarized, aggregated data. Use the raw sample for questions about specific entries or data formats. Use the aggregated data sample for questions about trends, totals, and comparisons. Be aware that you may not see the full aggregated table, so you cannot answer questions about the "last" item unless the table is very short.
 6.  **Understand Intent & Sanity-Check**: Grasp the user's goal. If a data request is impossible (e.g., asking for a 'profit' column that doesn't exist), explain why and suggest alternatives. But always remember Principles #1, #2 & #3 first.
 7.  **Use Business Language**: For data analysis, talk about performance, trends, contribution, etc.
 **Your Knowledge Base (Real-time Info):**
 - **Dataset Columns**:
     - Categorical: ${categoricalCols.join(', ')}
     - Numerical: ${numericalCols.join(', ')}
-- **Analysis Cards on Screen**:
+- **Analysis Cards on Screen (Sample of up to 100 rows each)**:
     ${cardContext.length > 0 ? JSON.stringify(cardContext, null, 2) : "No cards yet."}
 - **Raw Data Sample (first 20 rows):**
     ${rawDataSample.length > 0 ? JSON.stringify(rawDataSample, null, 2) : "No raw data available."}
@@ -799,7 +799,7 @@ ${recentHistory}
 3.  **Handle Ambiguous Follow-ups CRITICALLY**: If the user's query is very short (e.g., "why?", "color?", "model?"), it is a follow-up question. You MUST connect it to the most recent relevant topic by searching the memory and conversation history and then synthesizing a complete answer as per Principle #2.
     - **CORRECT Example**: Memory contains "User's car is a Proton S70". Recent conversation includes "User: i got red car". User now asks "color?". You MUST synthesize and respond "Your car is red." You MUST NOT ask "what color is it?".
 4.  **Analyze Data as a Second Step**: ONLY if the query cannot be answered by recalling facts, proceed to analyze the dataset. Connect insights between cards and explain the business implications (the "so what?").
-5.  **Distinguish Between Raw and Aggregated Data**: The 'Raw Data Sample' is for understanding columns and individual row examples. The 'Analysis Cards' show summarized, aggregated data. Use the raw sample for questions about specific entries or data formats. Use aggregated data for questions about trends, totals, and comparisons.
+5.  **Distinguish Between Raw and Aggregated Data**: The 'Raw Data Sample' shows the first 20 rows of the original file. The 'Analysis Cards' contain a sample of up to 100 rows of the summarized, aggregated data. Use the raw sample for questions about specific entries or data formats. Use the aggregated data sample for questions about trends, totals, and comparisons. Be aware that you may not see the full aggregated table, so you cannot answer questions about the "last" item unless the table is very short.
 6.  **Understand Intent & Sanity-Check**: Grasp the user's goal. If a data request is impossible (e.g., asking for a 'profit' column that doesn't exist), explain why and suggest alternatives. But always remember Principles #1, #2 & #3 first.
 7.  **Use Business Language**: For data analysis, talk about performance, trends, contribution, etc.
 
@@ -807,7 +807,7 @@ ${recentHistory}
                 - **Dataset Columns**:
                     - Categorical: ${categoricalCols.join(', ')}
                     - Numerical: ${numericalCols.join(', ')}
-                - **Analysis Cards on Screen**:
+                - **Analysis Cards on Screen (Sample of up to 100 rows each)**:
                     ${cardContext.length > 0 ? JSON.stringify(cardContext, null, 2) : "No cards yet."}
                 - **Raw Data Sample (first 20 rows):**
                     ${rawDataSample.length > 0 ? JSON.stringify(rawDataSample, null, 2) : "No raw data available."}
