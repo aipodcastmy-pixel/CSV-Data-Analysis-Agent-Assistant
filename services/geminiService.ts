@@ -46,7 +46,7 @@ const columnProfileSchema = {
     type: Type.OBJECT,
     properties: {
         name: { type: Type.STRING, description: "The column name." },
-        type: { type: Type.STRING, enum: ['numerical', 'categorical'], description: "The data type of the column." },
+        type: { type: Type.STRING, enum: ['numerical', 'categorical', 'date', 'time', 'currency', 'percentage'], description: "The data type of the column. Identify specific types like 'date', 'currency', etc., where possible." },
     },
     required: ['name', 'type'],
 };
@@ -82,7 +82,7 @@ export const generateDataPreparationPlan = async (
 
             if (settings.provider === 'openai') {
                 if (!settings.openAIApiKey) return { explanation: "No transformation needed as API key is not set.", jsFunctionBody: null, outputColumns: columns };
-                const systemPrompt = `You are an expert data engineer. Your task is to analyze a raw dataset and, if necessary, provide a JavaScript function to clean and reshape it into a tidy, analysis-ready format. CRITICALLY, you must also provide the schema of the NEW, transformed data.
+                const systemPrompt = `You are an expert data engineer. Your task is to analyze a raw dataset and, if necessary, provide a JavaScript function to clean and reshape it into a tidy, analysis-ready format. CRITICALLY, you must also provide the schema of the NEW, transformed data with detailed data types.
 A tidy format has: 1. Each variable as a column. 2. Each observation as a row.
 You MUST respond with a single valid JSON object, and nothing else. The JSON object must adhere to the provided schema.`;
                 const userPrompt = `Common problems to fix:
@@ -96,18 +96,22 @@ ${JSON.stringify(sampleData, null, 2)}
 ${lastError ? `On the previous attempt, your generated code failed with this error: "${lastError.message}". Please analyze the error and the data, then provide a corrected response.` : ''}
 Your task:
 1.  **Analyze**: Look at the initial schema and sample data.
-2.  **Plan Transformation**: Decide if cleaning or reshaping is needed.
-3.  **Define Output Schema**: Determine the exact column names and types ('numerical' or 'categorical') of the data AFTER your transformation. This is the MOST important step.
+2.  **Plan Transformation**: Decide if cleaning or reshaping is needed. If you identify date or time columns as strings, your function should attempt to parse them into a standard format (e.g., 'YYYY-MM-DD' for dates).
+3.  **Define Output Schema**: Determine the exact column names and types of the data AFTER your transformation. This is the MOST important step. Be as specific as possible with the types. Use 'categorical' for text labels, 'numerical' for general numbers, but you MUST identify and use the more specific types where they apply:
+    - **'date'**: For columns containing dates (e.g., "2023-10-26", "10/26/2023").
+    - **'time'**: For columns with time values (e.g., "14:30:00").
+    - **'currency'**: For columns representing money, especially if they contain symbols like '$' or ','.
+    - **'percentage'**: For columns with '%' symbols or values that are clearly percentages.
 4.  **Write Code**: If transformation is needed, write the body of a JavaScript function. This function receives one argument, \`data\`, and must return the transformed array of objects.
 5.  **Explain**: Provide a concise 'explanation' of what you did.
 **CRITICAL REQUIREMENTS:**
-- You MUST provide the \`outputColumns\` array. If you don't transform the data, \`outputColumns\` should be identical to the initial schema. If you do transform it, it must accurately reflect the new structure your code creates.
+- You MUST provide the \`outputColumns\` array. If you don't transform the data, \`outputColumns\` should be identical to the initial schema (but with more specific types if you identified them). If you do transform it, it must accurately reflect the new structure your code creates.
 - Your JavaScript code MUST include a \`return\` statement as its final operation.
-**Example: Reshaping a crosstab**
-- Initial Columns: [{'name': 'Product', 'type': 'categorical'}, {'name': 'Q1_Sales', 'type': 'numerical'}, {'name': 'Q2_Sales', 'type': 'numerical'}]
-- Explanation: "Reshaped the data from a wide format to a long format."
-- jsFunctionBody: "const r = []; data.forEach(row => { r.push({ Product: row.Product, Quarter: 'Q1', Sales: row.Q1_Sales }); r.push({ Product: row.Product, Quarter: 'Q2', Sales: row.Q2_Sales }); }); return r;"
-- outputColumns: [{'name': 'Product', 'type': 'categorical'}, {'name': 'Quarter', 'type': 'categorical'}, {'name': 'Sales', 'type': 'numerical'}]`;
+**Example: Reshaping and identifying types**
+- Initial Data: [{'Product': 'A', 'DateStr': 'Oct 26 2023', 'Revenue': '$1,500.00'}]
+- Explanation: "Standardized the date format and identified the revenue column as currency."
+- jsFunctionBody: "return data.map(row => ({ ...row, DateStr: new Date(row.DateStr).toISOString().split('T')[0] }));"
+- outputColumns: [{'name': 'Product', 'type': 'categorical'}, {'name': 'DateStr', 'type': 'date'}, {'name': 'Revenue', 'type': 'currency'}]`;
                 
                 const response = await withRetry(async () => {
                     const res = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -137,7 +141,7 @@ Your task:
                 if (!settings.geminiApiKey) return { explanation: "No transformation needed as API key is not set.", jsFunctionBody: null, outputColumns: columns };
                 const ai = new GoogleGenAI({ apiKey: settings.geminiApiKey });
                 const prompt = `
-                    You are an expert data engineer. Your task is to analyze a raw dataset and, if necessary, provide a JavaScript function to clean and reshape it into a tidy, analysis-ready format. CRITICALLY, you must also provide the schema of the NEW, transformed data.
+                    You are an expert data engineer. Your task is to analyze a raw dataset and, if necessary, provide a JavaScript function to clean and reshape it into a tidy, analysis-ready format. CRITICALLY, you must also provide the schema of the NEW, transformed data with detailed data types.
                     A tidy format has: 1. Each variable as a column. 2. Each observation as a row.
                     Common problems to fix:
                     - **Summary Rows**: Filter out rows with 'Total', 'Subtotal'.
@@ -150,18 +154,22 @@ Your task:
                     ${lastError ? `On the previous attempt, your generated code failed with this error: "${lastError.message}". Please analyze the error and the data, then provide a corrected response.` : ''}
                     Your task:
                     1.  **Analyze**: Look at the initial schema and sample data.
-                    2.  **Plan Transformation**: Decide if cleaning or reshaping is needed.
-                    3.  **Define Output Schema**: Determine the exact column names and types ('numerical' or 'categorical') of the data AFTER your transformation. This is the MOST important step.
+                    2.  **Plan Transformation**: Decide if cleaning or reshaping is needed. If you identify date or time columns as strings, your function should attempt to parse them into a standard format (e.g., 'YYYY-MM-DD' for dates).
+                    3.  **Define Output Schema**: Determine the exact column names and types of the data AFTER your transformation. This is the MOST important step. Be as specific as possible with the types. Use 'categorical' for text labels, 'numerical' for general numbers, but you MUST identify and use the more specific types where they apply:
+                        - **'date'**: For columns containing dates (e.g., "2023-10-26", "10/26/2023").
+                        - **'time'**: For columns with time values (e.g., "14:30:00").
+                        - **'currency'**: For columns representing money, especially if they contain symbols like '$' or ','.
+                        - **'percentage'**: For columns with '%' symbols or values that are clearly percentages.
                     4.  **Write Code**: If transformation is needed, write the body of a JavaScript function. This function receives one argument, \`data\`, and must return the transformed array of objects.
                     5.  **Explain**: Provide a concise 'explanation' of what you did.
                     **CRITICAL REQUIREMENTS:**
-                    - You MUST provide the \`outputColumns\` array. If you don't transform the data, \`outputColumns\` should be identical to the initial schema. If you do transform it, it must accurately reflect the new structure your code creates.
+                    - You MUST provide the \`outputColumns\` array. If you don't transform the data, \`outputColumns\` should be identical to the initial schema (but with more specific types if you identified them). If you do transform it, it must accurately reflect the new structure your code creates.
                     - Your JavaScript code MUST include a \`return\` statement as its final operation.
-                    **Example: Reshaping a crosstab**
-                    - Initial Columns: [{'name': 'Product', 'type': 'categorical'}, {'name': 'Q1_Sales', 'type': 'numerical'}, {'name': 'Q2_Sales', 'type': 'numerical'}]
-                    - Explanation: "Reshaped the data from a wide format to a long format."
-                    - jsFunctionBody: "const r = []; data.forEach(row => { r.push({ Product: row.Product, Quarter: 'Q1', Sales: row.Q1_Sales }); r.push({ Product: row.Product, Quarter: 'Q2', Sales: row.Q2_Sales }); }); return r;"
-                    - outputColumns: [{'name': 'Product', 'type': 'categorical'}, {'name': 'Quarter', 'type': 'categorical'}, {'name': 'Sales', 'type': 'numerical'}]
+                    **Example: Reshaping and identifying types**
+                    - Initial Data: [{'Product': 'A', 'DateStr': 'Oct 26 2023', 'Revenue': '$1,500.00'}]
+                    - Explanation: "Standardized the date format and identified the revenue column as currency."
+                    - jsFunctionBody: "return data.map(row => ({ ...row, DateStr: new Date(row.DateStr).toISOString().split('T')[0] }));"
+                    - outputColumns: [{'name': 'Product', 'type': 'categorical'}, {'name': 'DateStr', 'type': 'date'}, {'name': 'Revenue', 'type': 'currency'}]
                     Your response must be a valid JSON object adhering to the provided schema.
                 `;
                 const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
@@ -213,8 +221,8 @@ const generateCandidatePlans = async (
     settings: Settings,
     numPlans: number
 ): Promise<AnalysisPlan[]> => {
-    const categoricalCols = columns.filter(c => c.type === 'categorical').map(c => c.name);
-    const numericalCols = columns.filter(c => c.type === 'numerical').map(c => c.name);
+    const categoricalCols = columns.filter(c => c.type === 'categorical' || c.type === 'date' || c.type === 'time').map(c => c.name);
+    const numericalCols = columns.filter(c => c.type === 'numerical' || c.type === 'currency' || c.type === 'percentage').map(c => c.name);
     
     let jsonStr: string;
 
@@ -563,6 +571,85 @@ Produce a single, concise paragraph in ${settings.language}. This is your initia
     }
 };
 
+const proactiveInsightSchema = {
+    type: Type.OBJECT,
+    properties: {
+        insight: { type: Type.STRING, description: "A concise, user-facing message describing the single most important finding." },
+        cardId: { type: Type.STRING, description: "The ID of the card where this insight was observed." },
+    },
+    required: ['insight', 'cardId'],
+};
+
+export const generateProactiveInsights = async (cardContext: CardContext[], settings: Settings): Promise<{ insight: string; cardId: string; } | null> => {
+    const isApiKeySet = settings.provider === 'google' ? !!settings.geminiApiKey : !!settings.openAIApiKey;
+    if (!isApiKeySet || cardContext.length === 0) return null;
+
+    try {
+        let jsonStr: string;
+
+        if (settings.provider === 'openai') {
+             const systemPrompt = `You are a proactive data analyst. Review the following summaries of data visualizations. Your task is to identify the single most commercially significant or surprising insight. This could be a major trend, a key outlier, or a dominant category that has clear business implications. Your response must be a single JSON object with 'insight' and 'cardId' keys.`;
+             const userPrompt = `**Generated Analysis Cards & Data Samples:**
+${JSON.stringify(cardContext, null, 2)}
+
+Your Task:
+1.  **Analyze**: Review all the cards provided.
+2.  **Identify**: Find the ONE most important finding. Don't list everything, just the top insight.
+3.  **Formulate**: Write a concise, user-facing message in ${settings.language} that explains this insight (e.g., "I noticed that sales in August were unusually high, you might want to investigate what caused this spike.").
+4.  **Respond**: Return a JSON object containing this message and the ID of the card it relates to.`;
+            
+            const response = await withRetry(async () => {
+                const res = await fetch('https://api.openai.com/v1/chat/completions', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${settings.openAIApiKey}` },
+                    body: JSON.stringify({
+                        model: settings.model,
+                        messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
+                        response_format: { type: 'json_object' }
+                    })
+                });
+                if (!res.ok) {
+                    const errorData = await res.json();
+                    throw new Error(errorData.error?.message || `OpenAI API error: ${res.statusText}`);
+                }
+                return res.json();
+            });
+            jsonStr = response.choices[0].message.content;
+        
+        } else { // Google Gemini
+            const ai = new GoogleGenAI({ apiKey: settings.geminiApiKey });
+            const prompt = `
+                You are a proactive data analyst. Review the following summaries of data visualizations you have created. Your task is to identify the single most commercially significant or surprising insight. This could be a major trend, a key outlier, or a dominant category that has clear business implications.
+                
+                **Generated Analysis Cards & Data Samples:**
+                ${JSON.stringify(cardContext, null, 2)}
+
+                Your Task:
+                1.  **Analyze**: Review all the cards provided.
+                2.  **Identify**: Find the ONE most important finding. Don't list everything, just the top insight.
+                3.  **Formulate**: Write a concise, user-facing message in ${settings.language} that explains this insight (e.g., "I noticed that sales in August were unusually high, you might want to investigate what caused this spike.").
+                4.  **Respond**: Return a JSON object containing this message and the ID of the card it relates to.
+                
+                Your response must be a valid JSON object adhering to the provided schema.
+            `;
+            const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
+                model: settings.model as 'gemini-2.5-flash' | 'gemini-2.5-pro',
+                contents: prompt,
+                config: {
+                    responseMimeType: 'application/json',
+                    responseSchema: proactiveInsightSchema,
+                },
+            }));
+            jsonStr = response.text.trim();
+        }
+        return JSON.parse(jsonStr);
+
+    } catch (error) {
+        console.error("Error generating proactive insight:", error);
+        return null;
+    }
+};
+
 
 export const generateFinalSummary = async (cards: AnalysisCardData[], settings: Settings): Promise<string> => {
     const isApiKeySet = settings.provider === 'google' ? !!settings.geminiApiKey : !!settings.openAIApiKey;
@@ -714,8 +801,8 @@ export const generateChatResponse = async (
         return { actions: [{ responseType: 'text_response', text: 'Cloud AI is disabled. API Key not provided.', thought: 'API key is missing, so I must inform the user.' }] };
     }
 
-    const categoricalCols = columns.filter(c => c.type === 'categorical').map(c => c.name);
-    const numericalCols = columns.filter(c => c.type === 'numerical').map(c => c.name);
+    const categoricalCols = columns.filter(c => c.type === 'categorical' || c.type === 'date' || c.type === 'time').map(c => c.name);
+    const numericalCols = columns.filter(c => c.type === 'numerical' || c.type === 'currency' || c.type === 'percentage').map(c => c.name);
     const recentHistory = chatHistory.slice(-10).map(m => `${m.sender === 'ai' ? 'You' : 'User'}: ${m.text}`).join('\n');
     
     try {
@@ -758,6 +845,7 @@ ${recentHistory}
 - **ACT**: Based on your thought, choose the most appropriate action from your toolset and define its parameters in the same action object.
 - **CHAIN ACTIONS**: For complex tasks that require multiple steps, create a chain of 'thought' -> 'act' objects in the 'actions' array.
 - **CRITICAL**: If the user asks where a specific data value comes from (like 'Software Product 10') or how the data was cleaned, you MUST consult the **DATA PREPARATION LOG**. Use a 'text_response' to explain the transformation in simple, non-technical language. You can include snippets of the code using markdown formatting to illustrate your point.
+- **Suggest Next Steps**: After successfully answering the user's request, you should add one final \`text_response\` action to proactively suggest a logical next step or a relevant follow-up question. This guides the user and makes the analysis more conversational. Example: "Now that we've seen the regional breakdown, would you like to explore the top-performing product categories within the East region?"
 - **EXAMPLE of Chaining**:
   1.  Action 1: { thought: "The user is asking for profit margin, but that column doesn't exist. I need to calculate it from 'Revenue' and 'Cost'.", responseType: 'execute_js_code', code: { ... } }
   2.  Action 2: { thought: "Now that I have the 'Profit Margin' column, I need to create a chart to find the product with the highest average margin.", responseType: 'plan_creation', plan: { ... } }
@@ -826,6 +914,7 @@ ${recentHistory}
                 - **ACT**: Based on your thought, choose the most appropriate action from your toolset and define its parameters in the same action object.
                 - **CHAIN ACTIONS**: For complex tasks that require multiple steps, create a chain of 'thought' -> 'act' objects in the 'actions' array.
                 - **CRITICAL**: If the user asks where a specific data value comes from (like 'Software Product 10') or how the data was cleaned, you MUST consult the **DATA PREPARATION LOG**. Use a 'text_response' to explain the transformation in simple, non-technical language. You can include snippets of the code using markdown formatting to illustrate your point.
+                - **Suggest Next Steps**: After successfully answering the user's request, you should add one final \`text_response\` action to proactively suggest a logical next step or a relevant follow-up question. This guides the user and makes the analysis more conversational. Example: "Now that we've seen the regional breakdown, would you like to explore the top-performing product categories within the East region?"
                 - **EXAMPLE of Chaining**:
                   1.  Action 1: { thought: "The user is asking for profit margin, but that column doesn't exist. I need to calculate it from 'Revenue' and 'Cost'.", responseType: 'execute_js_code', code: { ... } }
                   2.  Action 2: { thought: "Now that I have the 'Profit Margin' column, I need to create a chart to find the product with the highest average margin.", responseType: 'plan_creation', plan: { ... } }

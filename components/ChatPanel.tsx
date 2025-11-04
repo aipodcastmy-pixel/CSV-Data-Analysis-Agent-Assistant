@@ -82,6 +82,26 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ progressMessages, chatHist
                     </div>
                 )
             }
+            
+            if (msg.type === 'ai_proactive_insight') {
+                return (
+                    <div key={`chat-${index}`} className="my-2 p-3 bg-yellow-50 border border-yellow-300 rounded-lg">
+                        <div className="flex items-center text-yellow-800 mb-2">
+                             <span className="text-lg mr-2">💡</span>
+                             <h4 className="font-semibold">Proactive Insight</h4>
+                        </div>
+                        <p className="text-sm text-slate-700 whitespace-pre-wrap">{msg.text}</p>
+                         {msg.cardId && (
+                            <button 
+                                onClick={() => onShowCard(msg.cardId!)}
+                                className="mt-2 text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded-md hover:bg-yellow-200 transition-colors w-full text-left font-medium"
+                            >
+                                → Show Related Card
+                            </button>
+                         )}
+                    </div>
+                )
+            }
 
 
             if (msg.sender === 'user') {

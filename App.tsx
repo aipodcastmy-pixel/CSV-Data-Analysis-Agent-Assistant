@@ -8,7 +8,7 @@ import { MemoryPanel } from './components/MemoryPanel';
 import { SpreadsheetPanel } from './components/SpreadsheetPanel';
 import { AnalysisCardData, ChatMessage, ProgressMessage, CsvData, AnalysisPlan, AppState, ColumnProfile, AiAction, CardContext, ChartType, DomAction, Settings, Report, ReportListItem, AppView, CsvRow, DataPreparationPlan } from './types';
 import { processCsv, profileData, executePlan, executeJavaScriptDataTransform } from './utils/dataProcessor';
-import { generateAnalysisPlans, generateSummary, generateFinalSummary, generateChatResponse, generateDataPreparationPlan, generateCoreAnalysisSummary } from './services/geminiService';
+import { generateAnalysisPlans, generateSummary, generateFinalSummary, generateChatResponse, generateDataPreparationPlan, generateCoreAnalysisSummary, generateProactiveInsights } from './services/geminiService';
 import { getReportsList, saveReport, getReport, deleteReport, getSettings, saveSettings, CURRENT_SESSION_KEY } from './storageService';
 import { vectorStore } from './services/vectorStore';
 
@@ -229,6 +229,24 @@ const App: React.FC = () => {
                 addProgress("Indexing core analysis for long-term memory...");
                 await vectorStore.addDocument({ id: 'core-summary', text: `Core Analysis Summary: ${coreSummary}` });
                 addProgress("Core analysis indexed.");
+            }
+            
+            addProgress('AI is looking for key insights...');
+            const proactiveInsight = await generateProactiveInsights(cardContext, settings);
+            
+            if (isMounted.current && proactiveInsight) {
+                const insightMessage: ChatMessage = {
+                    sender: 'ai',
+                    text: proactiveInsight.insight,
+                    timestamp: new Date(),
+                    type: 'ai_proactive_insight',
+                    cardId: proactiveInsight.cardId,
+                };
+                setAppState(prev => ({
+                    ...prev,
+                    chatHistory: [...prev.chatHistory, insightMessage],
+                }));
+                addProgress(`AI proactively identified an insight in View #${proactiveInsight.cardId.slice(-6)}.`);
             }
 
             const finalSummaryText = await generateFinalSummary(createdCards, settings);
@@ -482,13 +500,6 @@ const App: React.FC = () => {
         const newChatMessage: ChatMessage = { sender: 'user', text: message, timestamp: new Date(), type: 'user_message' };
         setAppState(prev => ({ ...prev, isBusy: true, chatHistory: [...prev.chatHistory, newChatMessage] }));
         await vectorStore.addDocument({id: `chat-${newChatMessage.timestamp.getTime()}-user`, text: `User asks: "${message}"`});
-        
-        // Clear previous progress messages for a clean slate, but keep errors
-        setAppState(prev => ({
-            ...prev,
-            progressMessages: prev.progressMessages.filter(p => p.type === 'error')
-        }));
-
 
         try {
             const relevantMemories = await vectorStore.search(message, 5);
