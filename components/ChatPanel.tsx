@@ -9,6 +9,7 @@ interface ChatPanelProps {
     isApiKeySet: boolean;
     onToggleVisibility: () => void;
     onOpenSettings: () => void;
+    onOpenMemory: () => void;
     onShowCard: (cardId: string) => void;
     currentView: AppView;
 }
@@ -26,8 +27,14 @@ const SettingsIcon: React.FC = () => (
     </svg>
 );
 
+const MemoryIcon: React.FC = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+        <path fillRule="evenodd" d="M18 8a6 6 0 01-7.743 5.743L10 14l-1 2-1-2-1.257-.257A6 6 0 1118 8zm-6-4a1 1 0 100 2 1 1 0 000-2zM6 8a1 1 0 112 0 1 1 0 01-2 0zm2 3a1 1 0 100 2 1 1 0 000-2z" clipRule="evenodd" />
+    </svg>
+);
 
-export const ChatPanel: React.FC<ChatPanelProps> = ({ progressMessages, chatHistory, isBusy, onSendMessage, isApiKeySet, onToggleVisibility, onOpenSettings, onShowCard, currentView }) => {
+
+export const ChatPanel: React.FC<ChatPanelProps> = ({ progressMessages, chatHistory, isBusy, onSendMessage, isApiKeySet, onToggleVisibility, onOpenSettings, onOpenMemory, onShowCard, currentView }) => {
     const [input, setInput] = useState('');
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -118,6 +125,14 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ progressMessages, chatHist
             <div className="p-4 border-b border-slate-200 flex justify-between items-center">
                 <h2 className="text-xl font-semibold text-slate-900">Assistant</h2>
                  <div className="flex items-center space-x-3">
+                    <button
+                        onClick={onOpenMemory}
+                        className="p-1 text-slate-500 rounded-full hover:bg-slate-200 hover:text-slate-800 transition-colors"
+                        title="View AI Memory"
+                        aria-label="View AI Memory"
+                    >
+                        <MemoryIcon />
+                    </button>
                     <button
                         onClick={onOpenSettings}
                         className="p-1 text-slate-500 rounded-full hover:bg-slate-200 hover:text-slate-800 transition-colors"

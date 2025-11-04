@@ -132,6 +132,14 @@ export interface CardContext {
     aggregatedDataSample: CsvRow[];
 }
 
+// For Long-Term Memory / Vector Store
+export interface VectorStoreDocument {
+    id: string;
+    text: string;
+    embedding: number[];
+    metadata?: Record<string, any>;
+}
+
 // For interactive spreadsheet sorting
 export interface SortConfig {
     key: string;

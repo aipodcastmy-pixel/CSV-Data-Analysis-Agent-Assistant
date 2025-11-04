@@ -704,7 +704,8 @@ export const generateChatResponse = async (
     settings: Settings,
     aiCoreAnalysisSummary: string | null,
     currentView: AppView,
-    rawDataSample: CsvRow[]
+    rawDataSample: CsvRow[],
+    longTermMemory: string[]
 ): Promise<AiChatResponse> => {
     const isApiKeySet = settings.provider === 'google' ? !!settings.geminiApiKey : !!settings.openAIApiKey;
     if (!isApiKeySet) {
@@ -713,7 +714,7 @@ export const generateChatResponse = async (
 
     const categoricalCols = columns.filter(c => c.type === 'categorical').map(c => c.name);
     const numericalCols = columns.filter(c => c.type === 'numerical').map(c => c.name);
-    const history = chatHistory.map(m => `${m.sender}: ${m.text}`).join('\n');
+    const recentHistory = chatHistory.slice(-4).map(m => `${m.sender === 'ai' ? 'You' : 'User'}: ${m.text}`).join('\n');
     
     try {
         let jsonStr: string;
@@ -722,38 +723,42 @@ export const generateChatResponse = async (
             const systemPrompt = `You are an expert data analyst and business strategist. Your task is to respond to the user by providing insightful analysis and breaking down your response into a sequence of actions. Your responses should be in ${settings.language}. The user is in a unified dashboard where they can see both the analysis charts and the raw data spreadsheet at all times.
 You MUST respond by creating a sequence of one or more actions.
 Your output MUST be a single JSON object with an "actions" key containing an array of action objects.`;
-            const userPromptWithContext = `**CORE ANALYSIS BRIEFING (Your Memory):**
-This is your core understanding of the dataset, which you must use to guide all your responses.
+            const userPromptWithContext = `**CORE ANALYSIS BRIEFING (Your Internal Summary):**
 ---
-${aiCoreAnalysisSummary || "No core analysis has been performed yet. This is your first look at the data."}
+${aiCoreAnalysisSummary || "No core analysis has been performed yet."}
+---
+**LONG-TERM MEMORY (Relevant past context, ordered by relevance):**
+---
+${longTermMemory.length > 0 ? longTermMemory.join('\n---\n') : "No specific long-term memories seem relevant to this query."}
 ---
 **Guiding Principles & Common Sense:**
-1.  **Synthesize and Interpret**: Do not simply state what a chart shows. Connect insights between cards using your Core Analysis Briefing as a guide. Explain the business implications—the "so what?".
-2.  **Understand Intent & Sanity-Check**: Grasp the user's underlying goal. If they ask for something that doesn't make sense with the data (e.g., "show profit" when no profit column exists), gently explain why it's not possible and suggest an alternative.
-3.  **Be Proactive**: Identify and highlight key trends, significant outliers, or interesting patterns. Frame findings as actionable business insights.
-4.  **Use Business Language**: Talk about performance, trends, contribution, outliers, and potential impact.
+1.  **Prioritize Conversation & Memory First**: Your absolute first priority is to check if the user's query can be answered from "LONG-TERM MEMORY" or "Recent Conversation". If the user asks about a fact they've told you, answer it directly.
+2.  **Handle Ambiguous Follow-ups CRITICALLY**: If the user's query is very short (e.g., "why?", "color?", "model?"), it is a follow-up question. You MUST connect it to the most recent relevant topic. Search the memory and conversation history to find the topic (e.g., "my car") and answer based on that. Do not ask for clarification if the context provides the answer.
+    - **CORRECT Example**: Memory contains "User's car is a red Proton S70". User asks "color?". You MUST respond "Your car is red."
+    - **INCORRECT Example**: User asks "color?". You respond "What color is your car?". This is a failure of context understanding.
+3.  **Synthesize and Interpret Data**: ONLY if the query is clearly about the data, connect insights between cards and explain the business implications (the "so what?").
+4.  **Understand Intent & Sanity-Check**: Grasp the user's goal. If a data request is impossible (e.g., asking for a 'profit' column that doesn't exist), explain why and suggest alternatives. But always remember Principles #1 & #2 first.
+5.  **Use Business Language**: For data analysis, talk about performance, trends, contribution, etc.
 **Your Knowledge Base (Real-time Info):**
 - **Dataset Columns**:
     - Categorical: ${categoricalCols.join(', ')}
     - Numerical: ${numericalCols.join(', ')}
 - **Analysis Cards on Screen**:
     ${cardContext.length > 0 ? JSON.stringify(cardContext, null, 2) : "No cards yet."}
-    (Use the aggregatedDataSample to answer questions about a card's content).
-- **Raw Data Sample (first 20 rows for context):**
+- **Raw Data Sample (first 20 rows):**
     ${rawDataSample.length > 0 ? JSON.stringify(rawDataSample, null, 2) : "No raw data available."}
-    (Use this sample to verify specific details or answer questions about individual rows. Do not assume it is the complete dataset.)
-**Conversation history:**
-${history}
+**Recent Conversation (for flow):**
+${recentHistory}
 **The user's latest message is:** "${userPrompt}"
 **Your Available Actions & Tools:**
 1.  **text_response**: For conversation. If your text explains a specific card, you MUST include its 'cardId'.
-2.  **plan_creation**: To create a NEW chart. If creating a bar/pie/doughnut chart with a \`groupByColumn\` that has many categories, you should set a \`defaultTopN\` of 8 and \`defaultHideOthers\` to \`true\` to ensure the chart is readable.
-3.  **dom_action**: To INTERACT with an EXISTING card. Available tools: 'highlightCard', 'changeCardChartType', 'showCardData', 'filterCard'.
-4.  **execute_js_code**: For COMPLEX TASKS that aggregations cannot handle, like creating new derived columns or cleaning data. You can use this tool AT ANY TIME.
+2.  **plan_creation**: To create a NEW chart. Use a 'defaultTopN' of 8 for readability on high-cardinality columns.
+3.  **dom_action**: To INTERACT with an EXISTING card ('highlightCard', 'changeCardChartType', 'showCardData', 'filterCard').
+4.  **execute_js_code**: For COMPLEX TASKS like creating new columns or complex filtering.
 5.  **proceed_to_analysis**: DEPRECATED.
 **Decision-Making Process:**
 - THINK STEP-BY-STEP. A single user request might require multiple actions.
-- If the user asks to modify the data (e.g., "delete rows", "create a column"), use 'execute_js_code'. You should always accompany this with a 'text_response' to confirm what you've done.
+- Use your Long-Term Memory to recall previous discussions and avoid repeating yourself.
 - Always be conversational. Use 'text_response' actions to acknowledge the user and explain what you are doing.`;
             
             const response = await withRetry(async () => {
@@ -778,51 +783,49 @@ ${history}
             const ai = new GoogleGenAI({ apiKey: settings.geminiApiKey });
             const prompt = `
                 You are an expert data analyst and business strategist. Your task is to respond to the user by providing insightful analysis and breaking down your response into a sequence of actions. Your responses should be in ${settings.language}. The user is in a unified dashboard where they can see both the analysis charts and the raw data spreadsheet at all times.
-                **CORE ANALYSIS BRIEFING (Your Memory):**
-                This is your core understanding of the dataset, which you must use to guide all your responses.
+                
+                **CORE ANALYSIS BRIEFING (Your Internal Summary):**
                 ---
-                ${aiCoreAnalysisSummary || "No core analysis has been performed yet. This is your first look at the data."}
+                ${aiCoreAnalysisSummary || "No core analysis has been performed yet."}
+                ---
+                **LONG-TERM MEMORY (Relevant past context, ordered by relevance):**
+                ---
+                ${longTermMemory.length > 0 ? longTermMemory.join('\n---\n') : "No specific long-term memories seem relevant to this query."}
                 ---
                 **Guiding Principles & Common Sense:**
-                1.  **Synthesize and Interpret**: Do not simply state what a chart shows. Connect insights between cards using your Core Analysis Briefing as a guide. Explain the business implications—the "so what?".
-                2.  **Understand Intent & Sanity-Check**: Grasp the user's underlying goal. If they ask for something that doesn't make sense with the data (e.g., "show profit" when no profit column exists), gently explain why it's not possible and suggest an alternative.
-                3.  **Be Proactive**: Identify and highlight key trends, significant outliers, or interesting patterns. Frame findings as actionable business insights.
-                4.  **Use Business Language**: Talk about performance, trends, contribution, outliers, and potential impact.
+1.  **Prioritize Conversation & Memory First**: Your absolute first priority is to check if the user's query can be answered from "LONG-TERM MEMORY" or "Recent Conversation". If the user asks about a fact they've told you, answer it directly.
+2.  **Handle Ambiguous Follow-ups CRITICALLY**: If the user's query is very short (e.g., "why?", "color?", "model?"), it is a follow-up question. You MUST connect it to the most recent relevant topic. Search the memory and conversation history to find the topic (e.g., "my car") and answer based on that. Do not ask for clarification if the context provides the answer.
+    - **CORRECT Example**: Memory contains "User's car is a red Proton S70". User asks "color?". You MUST respond "Your car is red."
+    - **INCORRECT Example**: User asks "color?". You respond "What color is your car?". This is a failure of context understanding.
+3.  **Synthesize and Interpret Data**: ONLY if the query is clearly about the data, connect insights between cards and explain the business implications (the "so what?").
+4.  **Understand Intent & Sanity-Check**: Grasp the user's goal. If a data request is impossible (e.g., asking for a 'profit' column that doesn't exist), explain why and suggest alternatives. But always remember Principles #1 & #2 first.
+5.  **Use Business Language**: For data analysis, talk about performance, trends, contribution, etc.
+
                 **Your Knowledge Base (Real-time Info):**
                 - **Dataset Columns**:
                     - Categorical: ${categoricalCols.join(', ')}
                     - Numerical: ${numericalCols.join(', ')}
                 - **Analysis Cards on Screen**:
                     ${cardContext.length > 0 ? JSON.stringify(cardContext, null, 2) : "No cards yet."}
-                    (Use the aggregatedDataSample to answer questions about a card's content).
-                - **Raw Data Sample (first 20 rows for context):**
+                - **Raw Data Sample (first 20 rows):**
                     ${rawDataSample.length > 0 ? JSON.stringify(rawDataSample, null, 2) : "No raw data available."}
-                    (Use this sample to verify specific details or answer questions about individual rows. Do not assume it is the complete dataset.)
-                **Conversation history:**
-                ${history}
+
+                **Recent Conversation (for flow):**
+                ${recentHistory}
+
                 **The user's latest message is:** "${userPrompt}"
+
                 **Your Available Actions & Tools:**
-                You MUST respond by creating a sequence of one or more actions.
+                You MUST respond by creating a sequence of one or more actions in a JSON object.
                 1.  **text_response**: For conversation. If your text explains a specific card, you MUST include its 'cardId'.
-                2.  **plan_creation**: To create a NEW chart. If creating a bar/pie/doughnut chart with a \`groupByColumn\` that has many categories, you should set a \`defaultTopN\` of 8 and \`defaultHideOthers\` to \`true\` to ensure the chart is readable.
-                3.  **dom_action**: To INTERACT with an EXISTING card. Available tools:
-                    - **highlightCard**: Scrolls to and highlights a card. Args: \`{ "cardId": "..." }\`.
-                    - **changeCardChartType**: Changes a card's chart. Args: \`{ "cardId": "...", "newType": "..." }\`.
-                    - **showCardData**: Shows/hides a card's data table. Args: \`{ "cardId": "...", "visible": boolean }\`.
-                    - **filterCard**: Applies a filter to a card. Use this to show a subset of data. Args: \`{ "cardId": "...", "column": "...", "values": ["..."] }\`. To clear a filter, send an empty values array.
-                4.  **execute_js_code**: For COMPLEX TASKS that aggregations cannot handle, like creating new derived columns or cleaning data. You can use this tool AT ANY TIME.
-                    - **IMPORTANT**: When you use this tool, the ENTIRE dataset is updated, and all charts on the screen will automatically regenerate to reflect the changes. You should inform the user of this.
-                    - **Use Case**: User says "Create a 'Cost per Transaction' column" or "Remove all rows for the USA".
-                    - **Your Action**: Generate an 'execute_js_code' action. The \`jsFunctionBody\` should be a string of JS code, like \`return data.map(row => ({ ...row, 'Cost per Transaction': row['Total Spend'] / row['Transactions'] }));\`
-                    - The function you write will receive the entire dataset as an array of objects called \`data\` and MUST return the transformed array.
-                5.  **proceed_to_analysis**: This action is DEPRECATED and should not be used. The analysis runs automatically. If the user asks to proceed, just confirm that the analysis is already done.
+                2.  **plan_creation**: To create a NEW chart. Use a 'defaultTopN' of 8 for readability on high-cardinality columns.
+                3.  **dom_action**: To INTERACT with an EXISTING card ('highlightCard', 'changeCardChartType', 'showCardData', 'filterCard').
+                4.  **execute_js_code**: For COMPLEX TASKS like creating new columns or complex filtering.
+                5.  **proceed_to_analysis**: DEPRECATED.
+
                 **Decision-Making Process:**
                 - THINK STEP-BY-STEP. A single user request might require multiple actions.
-                - **Multi-step example**: If user says "On the sales card, show me only Marketing and Engineering, and explain the result", you might return THREE actions:
-                    1. A 'dom_action' to 'filterCard' for the correct cardId, column, and values.
-                    2. A 'text_response' action that says something like "I've filtered the card for you."
-                    3. A 'text_response' action with the explanation of the filtered data, including the 'cardId'.
-                - If the user asks to modify the data (e.g., "delete rows", "create a column"), use 'execute_js_code'. You should always accompany this with a 'text_response' to confirm what you've done, e.g., "I've removed those rows and updated all the charts for you."
+                - Use your Long-Term Memory to recall previous discussions and avoid repeating yourself.
                 - Always be conversational. Use 'text_response' actions to acknowledge the user and explain what you are doing.
                 Your output MUST be a single JSON object with an "actions" key containing an array of action objects.
             `;
