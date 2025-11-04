@@ -79,6 +79,7 @@ export interface AppState {
     chatHistory: ChatMessage[];
     finalSummary: string | null;
     aiCoreAnalysisSummary: string | null; // AI's internal monologue/memory about the dataset
+    dataPreparationPlan: DataPreparationPlan | null; // The plan used to clean the data
 }
 
 export interface DomAction {
@@ -87,6 +88,7 @@ export interface DomAction {
 }
 
 export interface AiAction {
+  thought?: string; // The AI's reasoning for this action (ReAct pattern).
   responseType: 'plan_creation' | 'text_response' | 'dom_action' | 'execute_js_code' | 'proceed_to_analysis';
   plan?: AnalysisPlan;
   text?: string;

@@ -6,7 +6,7 @@ import { SettingsModal } from './components/SettingsModal';
 import { HistoryPanel } from './components/HistoryPanel';
 import { MemoryPanel } from './components/MemoryPanel';
 import { SpreadsheetPanel } from './components/SpreadsheetPanel';
-import { AnalysisCardData, ChatMessage, ProgressMessage, CsvData, AnalysisPlan, AppState, ColumnProfile, AiAction, CardContext, ChartType, DomAction, Settings, Report, ReportListItem, AppView, CsvRow } from './types';
+import { AnalysisCardData, ChatMessage, ProgressMessage, CsvData, AnalysisPlan, AppState, ColumnProfile, AiAction, CardContext, ChartType, DomAction, Settings, Report, ReportListItem, AppView, CsvRow, DataPreparationPlan } from './types';
 import { processCsv, profileData, executePlan, executeJavaScriptDataTransform } from './utils/dataProcessor';
 import { generateAnalysisPlans, generateSummary, generateFinalSummary, generateChatResponse, generateDataPreparationPlan, generateCoreAnalysisSummary } from './services/geminiService';
 import { getReportsList, saveReport, getReport, deleteReport, getSettings, saveSettings, CURRENT_SESSION_KEY } from './storageService';
@@ -43,6 +43,7 @@ const initialState: AppState = {
     chatHistory: [],
     finalSummary: null,
     aiCoreAnalysisSummary: null,
+    dataPreparationPlan: null,
 };
 
 
@@ -296,6 +297,7 @@ const App: React.FC = () => {
             
             let dataForAnalysis = parsedData;
             let profiles: ColumnProfile[];
+            let prepPlan: DataPreparationPlan | null = null;
 
             if (isApiKeySet) {
                 await vectorStore.init(addProgress);
@@ -303,7 +305,7 @@ const App: React.FC = () => {
                 addProgress('AI is analyzing data for cleaning and reshaping...');
                 const initialProfiles = profileData(dataForAnalysis.data);
                 
-                const prepPlan = await generateDataPreparationPlan(initialProfiles, dataForAnalysis.data.slice(0, 20), settings);
+                prepPlan = await generateDataPreparationPlan(initialProfiles, dataForAnalysis.data.slice(0, 20), settings);
                 
                 if (prepPlan && prepPlan.jsFunctionBody) {
                     addProgress(`AI Plan: ${prepPlan.explanation}`);
@@ -311,7 +313,7 @@ const App: React.FC = () => {
                     const originalRowCount = dataForAnalysis.data.length;
                     dataForAnalysis.data = executeJavaScriptDataTransform(dataForAnalysis.data, prepPlan.jsFunctionBody);
                     const newRowCount = dataForAnalysis.data.length;
-                    addProgress(`Transformation complete. Row count changed from ${originalRowCount} to ${newRowCount}.`);
+                    addProgress(`Transformation complete. Row count changed from ${originalRowCount} to ${newRowCount}. You can ask me how the data was cleaned.`);
                 } else {
                      addProgress('AI found no necessary data transformations.');
                 }
@@ -327,6 +329,7 @@ const App: React.FC = () => {
                     ...prev, 
                     csvData: dataForAnalysis, 
                     columnProfiles: profiles,
+                    dataPreparationPlan: prepPlan,
                     currentView: 'analysis_dashboard'
                 }));
                 await handleInitialAnalysis(dataForAnalysis);
@@ -479,10 +482,15 @@ const App: React.FC = () => {
         const newChatMessage: ChatMessage = { sender: 'user', text: message, timestamp: new Date(), type: 'user_message' };
         setAppState(prev => ({ ...prev, isBusy: true, chatHistory: [...prev.chatHistory, newChatMessage] }));
         await vectorStore.addDocument({id: `chat-${newChatMessage.timestamp.getTime()}-user`, text: `User asks: "${message}"`});
+        
+        // Clear previous progress messages for a clean slate, but keep errors
+        setAppState(prev => ({
+            ...prev,
+            progressMessages: prev.progressMessages.filter(p => p.type === 'error')
+        }));
+
 
         try {
-            addProgress('AI is thinking...');
-            addProgress('Searching long-term memory...');
             const relevantMemories = await vectorStore.search(message, 5);
             const memoryContext = relevantMemories.map(r => r.text);
             if (memoryContext.length > 0) {
@@ -504,7 +512,8 @@ const App: React.FC = () => {
                 appState.aiCoreAnalysisSummary,
                 appState.currentView,
                 appState.csvData.data.slice(0, 20),
-                memoryContext
+                memoryContext,
+                appState.dataPreparationPlan
             );
 
             const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
@@ -512,6 +521,12 @@ const App: React.FC = () => {
 
             for (const action of actions) {
                 if (!isMounted.current) break;
+
+                if (action.thought) {
+                    addProgress(`AI Thought: ${action.thought}`);
+                    await sleep(1500); // Give user time to read the thought
+                }
+                
                 switch (action.responseType) {
                     case 'text_response':
                         if (action.text && isMounted.current) {

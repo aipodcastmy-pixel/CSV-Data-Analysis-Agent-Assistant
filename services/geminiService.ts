@@ -651,6 +651,7 @@ const multiActionChatResponseSchema = {
             items: {
                 type: Type.OBJECT,
                 properties: {
+                    thought: { type: Type.STRING, description: "The AI's reasoning or thought process before performing the action. This explains *why* this action is being taken. This is a mandatory part of the ReAct pattern." },
                     responseType: { type: Type.STRING, enum: ['text_response', 'plan_creation', 'dom_action', 'execute_js_code', 'proceed_to_analysis'] },
                     text: { type: Type.STRING, description: "A conversational text response to the user. Required for 'text_response'." },
                     cardId: { type: Type.STRING, description: "Optional. The ID of the card this text response refers to. Used to link text to a specific chart." },
@@ -688,7 +689,7 @@ const multiActionChatResponseSchema = {
                         required: ['explanation', 'jsFunctionBody']
                     }
                 },
-                required: ['responseType']
+                required: ['responseType', 'thought']
             }
         }
     },
@@ -705,11 +706,12 @@ export const generateChatResponse = async (
     aiCoreAnalysisSummary: string | null,
     currentView: AppView,
     rawDataSample: CsvRow[],
-    longTermMemory: string[]
+    longTermMemory: string[],
+    dataPreparationPlan: DataPreparationPlan | null
 ): Promise<AiChatResponse> => {
     const isApiKeySet = settings.provider === 'google' ? !!settings.geminiApiKey : !!settings.openAIApiKey;
     if (!isApiKeySet) {
-        return { actions: [{ responseType: 'text_response', text: 'Cloud AI is disabled. API Key not provided.' }] };
+        return { actions: [{ responseType: 'text_response', text: 'Cloud AI is disabled. API Key not provided.', thought: 'API key is missing, so I must inform the user.' }] };
     }
 
     const categoricalCols = columns.filter(c => c.type === 'categorical').map(c => c.name);
@@ -720,26 +722,20 @@ export const generateChatResponse = async (
         let jsonStr: string;
 
         if (settings.provider === 'openai') {
-            const systemPrompt = `You are an expert data analyst and business strategist. Your task is to respond to the user by providing insightful analysis and breaking down your response into a sequence of actions. Your responses should be in ${settings.language}. The user is in a unified dashboard where they can see both the analysis charts and the raw data spreadsheet at all times.
-You MUST respond by creating a sequence of one or more actions.
+            const systemPrompt = `You are an expert data analyst and business strategist, required to operate using a Reason-Act (ReAct) framework. For every action you take, you must first explain your reasoning in the 'thought' field, and then define the action itself. Your goal is to respond to the user by providing insightful analysis and breaking down your response into a sequence of these thought-action pairs. Your final conversational responses should be in ${settings.language}.
 Your output MUST be a single JSON object with an "actions" key containing an array of action objects.`;
             const userPromptWithContext = `**CORE ANALYSIS BRIEFING (Your Internal Summary):**
 ---
 ${aiCoreAnalysisSummary || "No core analysis has been performed yet."}
 ---
+**DATA PREPARATION LOG (How the raw data was initially cleaned):**
+---
+${dataPreparationPlan ? `Explanation: ${dataPreparationPlan.explanation}\nCode Executed: \`\`\`javascript\n${dataPreparationPlan.jsFunctionBody}\n\`\`\`` : "No AI-driven data preparation was performed."}
+---
 **LONG-TERM MEMORY (Relevant past context, ordered by relevance):**
 ---
 ${longTermMemory.length > 0 ? longTermMemory.join('\n---\n') : "No specific long-term memories seem relevant to this query."}
 ---
-**Guiding Principles & Common Sense:**
-1.  **Recall Before Analyzing**: Your first step is ALWAYS to check if the user's query is a simple question that can be answered from "LONG-TERM MEMORY" or the "Recent Conversation" history. If it is, answer it directly and do not proceed to data analysis.
-2.  **Synthesize All Related Facts**: When recalling information, you MUST synthesize all related facts into a complete answer. Do not just state the most recent fact. For example, if you know the user's car is "red" and also a "Proton S70", and they ask about their car, you MUST combine these facts in your response.
-3.  **Handle Ambiguous Follow-ups CRITICALLY**: If the user's query is very short (e.g., "why?", "color?", "model?"), it is a follow-up question. You MUST connect it to the most recent relevant topic by searching the memory and conversation history and then synthesizing a complete answer as per Principle #2.
-    - **CORRECT Example**: Memory contains "User's car is a Proton S70". Recent conversation includes "User: i got red car". User now asks "color?". You MUST synthesize and respond "Your car is red." You MUST NOT ask "what color is it?".
-4.  **Analyze Data as a Second Step**: ONLY if the query cannot be answered by recalling facts, proceed to analyze the dataset. Connect insights between cards and explain the business implications (the "so what?").
-5.  **Distinguish Between Raw and Aggregated Data**: The 'Raw Data Sample' shows the first 20 rows of the original file. The 'Analysis Cards' contain a sample of up to 100 rows of the summarized, aggregated data. Use the raw sample for questions about specific entries or data formats. Use the aggregated data sample for questions about trends, totals, and comparisons. Be aware that you may not see the full aggregated table, so you cannot answer questions about the "last" item unless the table is very short.
-6.  **Understand Intent & Sanity-Check**: Grasp the user's goal. If a data request is impossible (e.g., asking for a 'profit' column that doesn't exist), explain why and suggest alternatives. But always remember Principles #1, #2 & #3 first.
-7.  **Use Business Language**: For data analysis, talk about performance, trends, contribution, etc.
 **Your Knowledge Base (Real-time Info):**
 - **Dataset Columns**:
     - Categorical: ${categoricalCols.join(', ')}
@@ -757,10 +753,16 @@ ${recentHistory}
 3.  **dom_action**: To INTERACT with an EXISTING card ('highlightCard', 'changeCardChartType', 'showCardData', 'filterCard').
 4.  **execute_js_code**: For COMPLEX TASKS like creating new columns or complex filtering.
 5.  **proceed_to_analysis**: DEPRECATED.
-**Decision-Making Process:**
-- THINK STEP-BY-STEP. A single user request might require multiple actions.
-- Use your Long-Term Memory to recall previous discussions and avoid repeating yourself.
-- Always be conversational. Use 'text_response' actions to acknowledge the user and explain what you are doing.`;
+**Decision-Making Process (ReAct Framework):**
+- **THINK (Reason)**: First, you MUST reason about the user's request. What is their goal? Can it be answered from memory, or does it require data analysis? What is the first logical step? Formulate this reasoning and place it in the 'thought' field of your action. This field is MANDATORY for every action.
+- **ACT**: Based on your thought, choose the most appropriate action from your toolset and define its parameters in the same action object.
+- **CHAIN ACTIONS**: For complex tasks that require multiple steps, create a chain of 'thought' -> 'act' objects in the 'actions' array.
+- **CRITICAL**: If the user asks where a specific data value comes from (like 'Software Product 10') or how the data was cleaned, you MUST consult the **DATA PREPARATION LOG**. Use a 'text_response' to explain the transformation in simple, non-technical language. You can include snippets of the code using markdown formatting to illustrate your point.
+- **EXAMPLE of Chaining**:
+  1.  Action 1: { thought: "The user is asking for profit margin, but that column doesn't exist. I need to calculate it from 'Revenue' and 'Cost'.", responseType: 'execute_js_code', code: { ... } }
+  2.  Action 2: { thought: "Now that I have the 'Profit Margin' column, I need to create a chart to find the product with the highest average margin.", responseType: 'plan_creation', plan: { ... } }
+  3.  Action 3: { thought: "The chart is created. I can now see the result and answer the user's question, explaining what I did.", responseType: 'text_response', text: "I've calculated the profit margin and created a new chart. It looks like 'Product A' has the highest margin." }
+- Always be conversational. Use 'text_response' actions to acknowledge the user and explain what you are doing, especially after a complex series of actions.`;
             
             const response = await withRetry(async () => {
                 const res = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -783,26 +785,20 @@ ${recentHistory}
         } else { // Google Gemini
             const ai = new GoogleGenAI({ apiKey: settings.geminiApiKey });
             const prompt = `
-                You are an expert data analyst and business strategist. Your task is to respond to the user by providing insightful analysis and breaking down your response into a sequence of actions. Your responses should be in ${settings.language}. The user is in a unified dashboard where they can see both the analysis charts and the raw data spreadsheet at all times.
+                You are an expert data analyst and business strategist, required to operate using a Reason-Act (ReAct) framework. For every action you take, you must first explain your reasoning in the 'thought' field, and then define the action itself. Your goal is to respond to the user by providing insightful analysis and breaking down your response into a sequence of these thought-action pairs. Your final conversational responses should be in ${settings.language}.
                 
                 **CORE ANALYSIS BRIEFING (Your Internal Summary):**
                 ---
                 ${aiCoreAnalysisSummary || "No core analysis has been performed yet."}
                 ---
+                **DATA PREPARATION LOG (How the raw data was initially cleaned):**
+                ---
+                ${dataPreparationPlan ? `Explanation: ${dataPreparationPlan.explanation}\nCode Executed: \`\`\`javascript\n${dataPreparationPlan.jsFunctionBody}\n\`\`\`` : "No AI-driven data preparation was performed."}
+                ---
                 **LONG-TERM MEMORY (Relevant past context, ordered by relevance):**
                 ---
                 ${longTermMemory.length > 0 ? longTermMemory.join('\n---\n') : "No specific long-term memories seem relevant to this query."}
                 ---
-                **Guiding Principles & Common Sense:**
-1.  **Recall Before Analyzing**: Your first step is ALWAYS to check if the user's query is a simple question that can be answered from "LONG-TERM MEMORY" or the "Recent Conversation" history. If it is, answer it directly and do not proceed to data analysis.
-2.  **Synthesize All Related Facts**: When recalling information, you MUST synthesize all related facts into a complete answer. Do not just state the most recent fact. For example, if you know the user's car is "red" and also a "Proton S70", and they ask about their car, you MUST combine these facts in your response.
-3.  **Handle Ambiguous Follow-ups CRITICALLY**: If the user's query is very short (e.g., "why?", "color?", "model?"), it is a follow-up question. You MUST connect it to the most recent relevant topic by searching the memory and conversation history and then synthesizing a complete answer as per Principle #2.
-    - **CORRECT Example**: Memory contains "User's car is a Proton S70". Recent conversation includes "User: i got red car". User now asks "color?". You MUST synthesize and respond "Your car is red." You MUST NOT ask "what color is it?".
-4.  **Analyze Data as a Second Step**: ONLY if the query cannot be answered by recalling facts, proceed to analyze the dataset. Connect insights between cards and explain the business implications (the "so what?").
-5.  **Distinguish Between Raw and Aggregated Data**: The 'Raw Data Sample' shows the first 20 rows of the original file. The 'Analysis Cards' contain a sample of up to 100 rows of the summarized, aggregated data. Use the raw sample for questions about specific entries or data formats. Use the aggregated data sample for questions about trends, totals, and comparisons. Be aware that you may not see the full aggregated table, so you cannot answer questions about the "last" item unless the table is very short.
-6.  **Understand Intent & Sanity-Check**: Grasp the user's goal. If a data request is impossible (e.g., asking for a 'profit' column that doesn't exist), explain why and suggest alternatives. But always remember Principles #1, #2 & #3 first.
-7.  **Use Business Language**: For data analysis, talk about performance, trends, contribution, etc.
-
                 **Your Knowledge Base (Real-time Info):**
                 - **Dataset Columns**:
                     - Categorical: ${categoricalCols.join(', ')}
@@ -825,10 +821,16 @@ ${recentHistory}
                 4.  **execute_js_code**: For COMPLEX TASKS like creating new columns or complex filtering.
                 5.  **proceed_to_analysis**: DEPRECATED.
 
-                **Decision-Making Process:**
-                - THINK STEP-BY-STEP. A single user request might require multiple actions.
-                - Use your Long-Term Memory to recall previous discussions and avoid repeating yourself.
-                - Always be conversational. Use 'text_response' actions to acknowledge the user and explain what you are doing.
+                **Decision-Making Process (ReAct Framework):**
+                - **THINK (Reason)**: First, you MUST reason about the user's request. What is their goal? Can it be answered from memory, or does it require data analysis? What is the first logical step? Formulate this reasoning and place it in the 'thought' field of your action. This field is MANDATORY for every action.
+                - **ACT**: Based on your thought, choose the most appropriate action from your toolset and define its parameters in the same action object.
+                - **CHAIN ACTIONS**: For complex tasks that require multiple steps, create a chain of 'thought' -> 'act' objects in the 'actions' array.
+                - **CRITICAL**: If the user asks where a specific data value comes from (like 'Software Product 10') or how the data was cleaned, you MUST consult the **DATA PREPARATION LOG**. Use a 'text_response' to explain the transformation in simple, non-technical language. You can include snippets of the code using markdown formatting to illustrate your point.
+                - **EXAMPLE of Chaining**:
+                  1.  Action 1: { thought: "The user is asking for profit margin, but that column doesn't exist. I need to calculate it from 'Revenue' and 'Cost'.", responseType: 'execute_js_code', code: { ... } }
+                  2.  Action 2: { thought: "Now that I have the 'Profit Margin' column, I need to create a chart to find the product with the highest average margin.", responseType: 'plan_creation', plan: { ... } }
+                  3.  Action 3: { thought: "The chart is created. I can now see the result and answer the user's question, explaining what I did.", responseType: 'text_response', text: "I've calculated the profit margin and created a new chart. It looks like 'Product A' has the highest margin." }
+                - Always be conversational. Use 'text_response' actions to acknowledge the user and explain what you are doing, especially after a complex series of actions.
                 Your output MUST be a single JSON object with an "actions" key containing an array of action objects.
             `;
             const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
