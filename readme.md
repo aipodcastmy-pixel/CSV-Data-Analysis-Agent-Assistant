@@ -7,28 +7,39 @@ This advanced tool allows users to have a conversation with their data, asking f
 ## ✨ Key Features
 
 *   **Uncompromising Privacy (Local-First)**: Your privacy is paramount. All CSV parsing and data aggregation happens directly in your browser via Web Workers and JavaScript. Your raw data file **never** leaves your computer. For AI-powered analysis, only the column names (the schema) and a small, representative sample of the data (typically 5-20 rows) are sent to your chosen AI provider (Google Gemini or OpenAI) to generate insights. The full dataset remains local at all times.
-*   **AI Quality Gate & Smart Defaults**: The agent doesn't just blindly generate charts. It uses a two-step "quality gate" process. After generating initial ideas, it acts as its own quality reviewer, analyzing the aggregated data for each potential chart. It automatically discards uninteresting or "rubbish" charts (like those with no data variation) and for charts with many categories, it intelligently sets a default "Top 8" view with "Others" hidden, ensuring you start with clean, insightful, and readable visualizations.
-*   **Transparent AI Thinking & Core Analysis**: The agent doesn't just work in a black box. After the initial analysis, it presents a **"Core Analysis Briefing"** in the chat. This briefing is the AI's summary of what your data is about, its key metrics, and its primary dimensions. This shared context forms the foundation for a more intelligent and collaborative conversation.
-*   **Intelligent Fault Tolerance & Self-Correction**: The agent is robust. If an API call fails, it automatically retries. If the AI generates faulty JavaScript code for data preparation, it will analyze the error and attempt to correct its own code, ensuring a smoother analysis pipeline.
-*   **Persistent Session History**: Your work is always safe. The app continuously saves your current analysis to a "live session". If you reload the page, you'll be right back where you left off. When you upload a new file, your previous session is automatically archived to the History panel.
+
+*   **Advanced ReAct Framework & Tool Chaining**: The agent operates on a sophisticated Reason+Act (ReAct) model, allowing it to autonomously tackle complex, multi-step problems like a human analyst.
+    *   **Transparent Thinking**: Before taking any action—like creating a chart or transforming data—it first outputs its 'thought' process to the live log, giving you a real-time window into its reasoning.
+    *   **Intelligent Tool Chaining**: This framework enables the agent to break down a single complex request (e.g., "Which product has the highest profit margin?") into a logical chain of tool uses: first executing code to calculate the new 'profit margin' column, then generating a chart to visualize it, and finally summarizing the result.
+    *   **Full Self-Explanation**: The agent remembers every action it takes, including the initial data preparation script. You can ask it, "Where did the 'Software Product 10' value come from?", and it will consult its logs to explain exactly how it cleaned and standardized the raw data, building trust and ensuring reproducibility.
+
 *   **AI-Powered Data Preparation**: The assistant acts as a data engineer. It intelligently analyzes your raw CSV for complex structures, summary rows, or other anomalies. It then writes and executes a custom JavaScript function on-the-fly to clean and reshape your data into a tidy, analysis-ready format.
+
+*   **AI Quality Gate & Smart Defaults**: The agent doesn't just blindly generate charts. It uses a two-step "quality gate" process. After generating initial ideas, it acts as its own quality reviewer, analyzing the aggregated data for each potential chart. It automatically discards uninteresting or "rubbish" charts (like those with no data variation) and for charts with many categories, it intelligently sets a default "Top 8" view with "Others" hidden, ensuring you start with clean, insightful, and readable visualizations.
+
+*   **Persistent Session History**: Your work is always safe. The app continuously saves your current analysis to a "live session". If you reload the page, you'll be right back where you left off. When you upload a new file, your previous session is automatically archived to the History panel.
+
 *   **Configurable AI Settings**:
     *   Choose between Google Gemini and OpenAI as your AI provider.
     *   Securely use your own API key for the selected provider.
     *   Switch between powerful models like `gemini-2.5-pro`, `gemini-2.5-flash`, `gpt-4o`, and `gpt-4-turbo`.
     *   Choose the agent's response language.
-*   **AI-Powered Analysis Generation**: On file upload, the AI assistant proactively generates a set of 4 to 12 diverse and insightful analysis plans and visualizes them as cards.
+
+*   **AI-Powered Analysis Generation**: On file upload, the AI assistant proactively generates a set of 4 to 12 diverse and insightful analysis plans and visualizes them as cards. It also provides a **"Core Analysis Briefing"** in the chat, summarizing its initial understanding of your data to establish a shared context for your conversation.
+
 *   **Interactive & Customizable Charts**:
     *   Switch between Bar, Line, Pie, Doughnut, and Scatter charts on-the-fly for any analysis.
     *   **Top N Filtering**: Focus on what matters. For charts with many categories, you can instantly filter to see the "Top 5", "Top 8", "Top 10", or "Top 20" items, with all others grouped into an "Others" category. You can also hide the "Others" group for a clearer view.
     *   Zoom and pan on charts to explore dense data.
     *   Click on data points to see details and multi-select for comparison.
-*   **Conversational AI Chat**: Engage in a dialogue with the AI. Ask for a new analysis, inquire about data points, or request summaries. The AI maintains conversation context.
-*   **🤖 Dynamic AI-Driven Interaction & Analysis**: The AI acts as an expert analyst with common sense, providing synthesized insights and business interpretations. It can perform a sequence of actions to guide you, creating a more natural conversational flow.
+
+*   **Conversational AI Chat & Dynamic Interaction**: Engage in a dialogue with the AI to command the interface and data.
     *   **Insightful "Point and Talk"**: The AI can highlight a relevant chart and then follow up with a detailed text explanation. When it discusses a specific chart, a **"Show Related Card"** button appears with its message, allowing you to instantly jump to the visualization it's referencing.
     *   **Interactive Filtering**: Ask the AI to "On the sales chart, show me only the Marketing and Engineering departments." The AI will apply the filter to the card instantly.
     *   **On-the-Fly JavaScript Execution**: For complex tasks, the AI can write and execute its own JavaScript during the conversation. For example, ask it to **"Create a new 'Profit' column by subtracting 'Costs' from 'Revenue'"**. The AI will generate and run the code, update the dataset, and make the new 'Profit' column available for further analysis.
+
 *   **Comprehensive Export Options**: Export any analysis card as a PNG image, a CSV file of the aggregated data, or a full HTML report.
+
 *   **Responsive Design**: A clean, modern interface that works seamlessly on different screen sizes, with a resizable and collapsible assistant panel.
 
 ## ⚙️ Configuration
