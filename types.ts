@@ -54,7 +54,7 @@ export interface ChatMessage {
     sender: 'user' | 'ai';
     text: string;
     timestamp: Date;
-    type?: 'user_message' | 'ai_message' | 'ai_thinking' | 'ai_proactive_insight'; // New field for special message types
+    type?: 'user_message' | 'ai_message' | 'ai_thinking' | 'ai_proactive_insight' | 'ai_plan_start'; // New field for special message types
     isError?: boolean; // To style error messages in the chat
     cardId?: string; // ID of the card this message refers to
 }

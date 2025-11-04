@@ -531,16 +531,30 @@ const App: React.FC = () => {
             const actions = response.actions;
             
             if (actions.length > 1) {
-                addProgress(`AI has formulated a ${actions.length}-step plan to address your request.`);
+                const planText = actions[0]?.thought || `I've formulated a ${actions.length}-step plan to address your request.`;
+                const planMessage: ChatMessage = {
+                    sender: 'ai',
+                    text: planText,
+                    timestamp: new Date(),
+                    type: 'ai_plan_start',
+                };
+                if (isMounted.current) {
+                    setAppState(prev => ({ ...prev, chatHistory: [...prev.chatHistory, planMessage] }));
+                }
+                addProgress(`AI is executing a ${actions.length}-step plan.`);
                 await sleep(1000);
             }
 
-            for (const action of actions) {
+            for (const [index, action] of actions.entries()) {
                 if (!isMounted.current) break;
 
                 if (action.thought) {
-                    addProgress(`AI Thought: ${action.thought}`);
-                    await sleep(1500); // Give user time to read the thought
+                    // The first thought of a multi-step plan is already displayed in the chat.
+                    // We only log subsequent thoughts for individual steps, or thoughts for single-step actions.
+                    if (index > 0 || actions.length === 1) {
+                        addProgress(`AI Thought: ${action.thought}`);
+                        await sleep(1500); // Give user time to read the thought
+                    }
                 }
                 
                 switch (action.responseType) {

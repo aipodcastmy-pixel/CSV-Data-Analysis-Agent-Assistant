@@ -71,6 +71,18 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ progressMessages, chatHist
         if ('sender' in item) { // It's a ChatMessage
             const msg = item as ChatMessage;
 
+            if (msg.type === 'ai_plan_start') {
+                return (
+                    <div key={`chat-${index}`} className="my-2 p-3 bg-slate-100 border border-slate-200 rounded-lg">
+                        <div className="flex items-center text-slate-700 mb-2">
+                             <span className="text-lg mr-2">⚙️</span>
+                             <h4 className="font-semibold">Plan Execution</h4>
+                        </div>
+                        <p className="text-sm text-slate-700 whitespace-pre-wrap">{msg.text}</p>
+                    </div>
+                );
+            }
+
             if (msg.type === 'ai_thinking') {
                 return (
                     <div key={`chat-${index}`} className="my-2 p-3 bg-white border border-blue-200 rounded-lg">
