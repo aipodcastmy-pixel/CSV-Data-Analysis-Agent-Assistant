@@ -529,6 +529,11 @@ const App: React.FC = () => {
 
             const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
             const actions = response.actions;
+            
+            if (actions.length > 1) {
+                addProgress(`AI has formulated a ${actions.length}-step plan to address your request.`);
+                await sleep(1000);
+            }
 
             for (const action of actions) {
                 if (!isMounted.current) break;
