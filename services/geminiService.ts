@@ -1,30 +1,7 @@
-
-
 // This service now handles both Google Gemini and OpenAI models.
 import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
-import { AnalysisPlan, CsvData, ColumnProfile, AnalysisCardData, AiChatResponse, ChatMessage, Settings, DataPreparationPlan, CardContext, CsvRow, AppView, AiAction } from '../types';
+import { AnalysisPlan, CsvData, ColumnProfile, AnalysisCardData, AiChatResponse, ChatMessage, Settings, DataPreparationPlan, CardContext, CsvRow, AppView } from '../types';
 import { executePlan } from "../utils/dataProcessor";
-
-// Helper for timing out API calls
-const withTimeout = <T>(promise: Promise<T>, ms: number): Promise<T> => {
-    return new Promise((resolve, reject) => {
-        const timeoutId = setTimeout(() => {
-            reject(new Error(`Operation timed out after ${ms} ms`));
-        }, ms);
-
-        promise.then(
-            (res) => {
-                clearTimeout(timeoutId);
-                resolve(res);
-            },
-            (err) => {
-                clearTimeout(timeoutId);
-                reject(err);
-            }
-        );
-    });
-};
-
 
 // Helper for retrying API calls
 const withRetry = async <T>(fn: () => Promise<T>, retries = 2): Promise<T> => {
@@ -80,7 +57,7 @@ const dataPreparationSchema = {
         explanation: { type: Type.STRING, description: "A brief, user-facing explanation of the transformations that will be applied to the data (e.g., 'Removed 3 summary rows and reshaped the data from a cross-tab format')." },
         jsFunctionBody: {
             type: Type.STRING,
-            description: "The body of a JavaScript function that takes two arguments `data` (an array of objects) and `_util` (a helper object) and returns the transformed array of objects. If no transformation is needed, you MUST omit this field. Do not return null or an empty string."
+            description: "The body of a JavaScript function that takes two arguments `data` (an array of objects) and `_util` (a helper object) and returns the transformed array of objects. This code will be executed to clean and reshape the data. If no transformation is needed, this should be null."
         },
         outputColumns: {
             type: Type.ARRAY,
@@ -160,8 +137,7 @@ Your task:
                                 { role: 'user', content: userPrompt }
                             ],
                             response_format: { type: 'json_object' }
-                        }),
-                        signal: AbortSignal.timeout(60000) // 60-second timeout for data prep
+                        })
                     });
                     if (!res.ok) {
                         const errorData = await res.json();
@@ -216,15 +192,14 @@ Your task:
                     - outputColumns: [{'name': 'Product', 'type': 'categorical'}, {'name': 'DateStr', 'type': 'date'}, {'name': 'Revenue', 'type': 'currency'}]
                     Your response must be a valid JSON object adhering to the provided schema.
                 `;
-                const geminiCall = ai.models.generateContent({
+                const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
                     model: settings.model as 'gemini-2.5-flash' | 'gemini-2.5-pro',
                     contents: prompt,
                     config: {
                         responseMimeType: 'application/json',
                         responseSchema: dataPreparationSchema,
                     },
-                });
-                const response: GenerateContentResponse = await withRetry(() => withTimeout(geminiCall, 60000));
+                }));
                 jsonStr = response.text.trim();
             }
             
@@ -313,8 +288,7 @@ Rules:
                     model: settings.model,
                     messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
                     response_format: { type: 'json_object' }
-                }),
-                signal: AbortSignal.timeout(30000)
+                })
             });
             if (!res.ok) {
                 const errorData = await res.json();
@@ -359,15 +333,14 @@ Rules:
             - Do not create plans that are too granular (e.g., grouping by a unique ID column if there are thousands of them).
             Your response must be a valid JSON array of plan objects. Do not include any other text or explanations.
         `;
-        const geminiCall = ai.models.generateContent({
+        const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
             model: settings.model as 'gemini-2.5-flash' | 'gemini-2.5-pro',
             contents: prompt,
             config: {
                 responseMimeType: 'application/json',
                 responseSchema: planSchema,
             },
-        });
-        const response: GenerateContentResponse = await withRetry(() => withTimeout(geminiCall, 30000));
+        }));
         jsonStr = response.text.trim();
     }
 
@@ -403,8 +376,7 @@ ${JSON.stringify(plansWithData, null, 2)}`;
                     model: settings.model,
                     messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
                     response_format: { type: 'json_object' }
-                }),
-                signal: AbortSignal.timeout(30000)
+                })
             });
             if (!res.ok) {
                 const errorData = await res.json();
@@ -433,15 +405,14 @@ ${JSON.stringify(plansWithData, null, 2)}`;
             ${JSON.stringify(plansWithData, null, 2)}
             Your response must be a valid JSON array of the refined and configured plan objects, adhering to the provided schema. Do not include any other text or explanations.
         `;
-        const geminiCall = ai.models.generateContent({
+        const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
             model: settings.model as 'gemini-2.5-flash' | 'gemini-2.5-pro',
             contents: prompt,
             config: {
                 responseMimeType: 'application/json',
                 responseSchema: planSchema,
             },
-        });
-        const response: GenerateContentResponse = await withRetry(() => withTimeout(geminiCall, 30000));
+        }));
         jsonStr = response.text.trim();
     }
     
@@ -525,8 +496,7 @@ ${languageInstruction}`;
                     body: JSON.stringify({
                         model: settings.model,
                         messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
-                    }),
-                    signal: AbortSignal.timeout(30000)
+                    })
                 });
                 if (!res.ok) {
                     const errorData = await res.json();
@@ -552,11 +522,10 @@ ${languageInstruction}`;
                 For example, instead of "Region A has 500 sales", say "Region A is the top performer, contributing the majority of sales, which suggests a strong market presence there."
                 Your response must be only the summary text in the specified format.
             `;
-            const geminiCall = ai.models.generateContent({
+            const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
                 model: settings.model as 'gemini-2.5-flash' | 'gemini-2.5-pro',
                 contents: prompt,
-            });
-            const response: GenerateContentResponse = await withRetry(() => withTimeout(geminiCall, 30000));
+            }));
             return response.text;
         }
     } catch (error) {
@@ -590,8 +559,7 @@ Produce a single, concise paragraph in ${settings.language}. This is your initia
                     body: JSON.stringify({
                         model: settings.model,
                         messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
-                    }),
-                    signal: AbortSignal.timeout(30000)
+                    })
                 });
                 if (!res.ok) {
                     const errorData = await res.json();
@@ -616,11 +584,10 @@ Produce a single, concise paragraph in ${settings.language}. This is your initia
                 - **Generated Analysis Cards**: ${JSON.stringify(cardContext, null, 2)}
                 Produce a single, concise paragraph in ${settings.language}. This is your initial assessment that you will share with your human counterpart.
             `;
-            const geminiCall = ai.models.generateContent({
+            const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
                 model: settings.model as 'gemini-2.5-flash' | 'gemini-2.5-pro',
                 contents: prompt,
-            });
-            const response: GenerateContentResponse = await withRetry(() => withTimeout(geminiCall, 30000));
+            }));
             return response.text;
         }
     } catch (error) {
@@ -664,8 +631,7 @@ Your Task:
                         model: settings.model,
                         messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
                         response_format: { type: 'json_object' }
-                    }),
-                    signal: AbortSignal.timeout(30000)
+                    })
                 });
                 if (!res.ok) {
                     const errorData = await res.json();
@@ -691,15 +657,14 @@ Your Task:
                 
                 Your response must be a valid JSON object adhering to the provided schema.
             `;
-            const geminiCall = ai.models.generateContent({
+            const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
                 model: settings.model as 'gemini-2.5-flash' | 'gemini-2.5-pro',
                 contents: prompt,
                 config: {
                     responseMimeType: 'application/json',
                     responseSchema: proactiveInsightSchema,
                 },
-            });
-            const response: GenerateContentResponse = await withRetry(() => withTimeout(geminiCall, 30000));
+            }));
             jsonStr = response.text.trim();
         }
         return JSON.parse(jsonStr);
@@ -737,8 +702,7 @@ ${summaries}`;
                     body: JSON.stringify({
                         model: settings.model,
                         messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
-                    }),
-                    signal: AbortSignal.timeout(30000)
+                    })
                 });
                 if (!res.ok) {
                     const errorData = await res.json();
@@ -760,11 +724,10 @@ ${summaries}`;
                 Do not just repeat the individual summaries. Create a new, synthesized narrative.
                 Your response should be a single paragraph of insightful business analysis.
             `;
-            const geminiCall = ai.models.generateContent({
+            const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
                 model: settings.model as 'gemini-2.5-flash' | 'gemini-2.5-pro',
                 contents: prompt,
-            });
-            const response: GenerateContentResponse = await withRetry(() => withTimeout(geminiCall, 30000));
+            }));
             return response.text;
         }
     } catch (error) {
@@ -790,97 +753,6 @@ const singlePlanSchema = {
     required: ['chartType', 'title', 'description'],
 };
 
-const aiActionSchema = {
-    type: Type.OBJECT,
-    properties: {
-        thought: { type: Type.STRING, description: "The AI's reasoning or thought process before performing the action. This explains *why* this action is being taken. This is a mandatory part of the ReAct pattern." },
-        responseType: { type: Type.STRING, enum: ['text_response', 'plan_creation', 'dom_action', 'execute_js_code', 'confirmation_required'] },
-        text: { type: Type.STRING, description: "A conversational text response to the user. Required for 'text_response' and 'confirmation_required'." },
-        cardId: { type: Type.STRING, description: "Optional. The ID of the card this text response refers to. Used to link text to a specific chart." },
-        plan: {
-            ...singlePlanSchema,
-            description: "Analysis plan object. Required for 'plan_creation'."
-        },
-        domAction: {
-            type: Type.OBJECT,
-            description: "A DOM manipulation action for the frontend to execute. Required for 'dom_action'.",
-            properties: {
-                toolName: { type: Type.STRING, enum: ['highlightCard', 'changeCardChartType', 'showCardData', 'filterCard'] },
-                args: {
-                    type: Type.OBJECT,
-                    description: 'Arguments for the tool. e.g., { cardId: "..." }',
-                    properties: {
-                        cardId: { type: Type.STRING, description: 'The ID of the target analysis card.' },
-                        newType: { type: Type.STRING, enum: ['bar', 'line', 'pie', 'doughnut', 'scatter'], description: "For 'changeCardChartType'." },
-                        visible: { type: Type.BOOLEAN, description: "For 'showCardData'." },
-                        column: { type: Type.STRING, description: "For 'filterCard', the column to filter on." },
-                        values: { type: Type.ARRAY, items: { type: Type.STRING }, description: "For 'filterCard', the values to include." },
-                    },
-                    required: ['cardId'],
-                },
-            },
-            required: ['toolName', 'args']
-        },
-        code: {
-            type: Type.OBJECT,
-            description: "For 'execute_js_code', the code to run.",
-            properties: {
-                explanation: { type: Type.STRING, description: "A brief, user-facing explanation of what the code will do." },
-                jsFunctionBody: { type: Type.STRING, description: "The body of a JavaScript function that takes 'data' and returns the transformed 'data'." },
-            },
-            required: ['explanation', 'jsFunctionBody']
-        },
-        actionToConfirm: {
-            type: Type.OBJECT,
-            description: "The action that requires confirmation. Required for 'confirmation_required'.",
-            // FIX: Gemini requires OBJECT types to have a non-empty 'properties' field.
-            // We define the properties of the nested action here. It's an AiAction, but without another 'actionToConfirm'.
-            properties: {
-                thought: { type: Type.STRING, description: "The AI's reasoning for the action to be confirmed." },
-                // The nested action cannot itself be a confirmation request.
-                responseType: { type: Type.STRING, enum: ['text_response', 'plan_creation', 'dom_action', 'execute_js_code'] },
-                text: { type: Type.STRING, description: "A conversational text response for the action to confirm." },
-                cardId: { type: Type.STRING, description: "Optional. The ID of the card this action refers to." },
-                plan: {
-                    ...singlePlanSchema,
-                    description: "Analysis plan for the confirmed action."
-                },
-                domAction: {
-                    type: Type.OBJECT,
-                    description: "A DOM action for the confirmed action.",
-                    properties: {
-                        toolName: { type: Type.STRING, enum: ['highlightCard', 'changeCardChartType', 'showCardData', 'filterCard'] },
-                        args: {
-                            type: Type.OBJECT,
-                            description: 'Arguments for the tool. e.g., { "cardId": "card-123" }',
-                            properties: {
-                                cardId: { type: Type.STRING, description: 'The ID of the target analysis card.' },
-                                newType: { type: Type.STRING, enum: ['bar', 'line', 'pie', 'doughnut', 'scatter'], description: "For 'changeCardChartType'." },
-                                visible: { type: Type.BOOLEAN, description: "For 'showCardData'." },
-                                column: { type: Type.STRING, description: "For 'filterCard', the column to filter on." },
-                                values: { type: Type.ARRAY, items: { type: Type.STRING }, description: "For 'filterCard', the values to include." },
-                            },
-                            required: ['cardId'],
-                        },
-                    },
-                    required: ['toolName', 'args']
-                },
-                code: {
-                    type: Type.OBJECT,
-                    description: "Code to execute for the confirmed action.",
-                    properties: {
-                        explanation: { type: Type.STRING, description: "Explanation for the code." },
-                        jsFunctionBody: { type: Type.STRING, description: "The JS function body." },
-                    },
-                    required: ['explanation', 'jsFunctionBody']
-                },
-            },
-            required: ['responseType', 'thought']
-        }
-    },
-    required: ['responseType', 'thought']
-};
-
 
 const multiActionChatResponseSchema = {
     type: Type.OBJECT,
@@ -888,7 +760,49 @@ const multiActionChatResponseSchema = {
         actions: {
             type: Type.ARRAY,
             description: "A sequence of actions for the assistant to perform.",
-            items: aiActionSchema,
+            items: {
+                type: Type.OBJECT,
+                properties: {
+                    thought: { type: Type.STRING, description: "The AI's reasoning or thought process before performing the action. This explains *why* this action is being taken. This is a mandatory part of the ReAct pattern." },
+                    responseType: { type: Type.STRING, enum: ['text_response', 'plan_creation', 'dom_action', 'execute_js_code', 'proceed_to_analysis'] },
+                    text: { type: Type.STRING, description: "A conversational text response to the user. Required for 'text_response'." },
+                    cardId: { type: Type.STRING, description: "Optional. The ID of the card this text response refers to. Used to link text to a specific chart." },
+                    plan: {
+                        ...singlePlanSchema,
+                        description: "Analysis plan object. Required for 'plan_creation'."
+                    },
+                    domAction: {
+                        type: Type.OBJECT,
+                        description: "A DOM manipulation action for the frontend to execute. Required for 'dom_action'.",
+                        properties: {
+                            toolName: { type: Type.STRING, enum: ['highlightCard', 'changeCardChartType', 'showCardData', 'filterCard'] },
+                            args: {
+                                type: Type.OBJECT,
+                                description: 'Arguments for the tool. e.g., { cardId: "..." }',
+                                properties: {
+                                    cardId: { type: Type.STRING, description: 'The ID of the target analysis card.' },
+                                    newType: { type: Type.STRING, enum: ['bar', 'line', 'pie', 'doughnut', 'scatter'], description: "For 'changeCardChartType'." },
+                                    visible: { type: Type.BOOLEAN, description: "For 'showCardData'." },
+                                    column: { type: Type.STRING, description: "For 'filterCard', the column to filter on." },
+                                    values: { type: Type.ARRAY, items: { type: Type.STRING }, description: "For 'filterCard', the values to include." },
+                                },
+                                required: ['cardId'],
+                            },
+                        },
+                        required: ['toolName', 'args']
+                    },
+                    code: {
+                        type: Type.OBJECT,
+                        description: "For 'execute_js_code', the code to run.",
+                        properties: {
+                            explanation: { type: Type.STRING, description: "A brief, user-facing explanation of what the code will do." },
+                            jsFunctionBody: { type: Type.STRING, description: "The body of a JavaScript function that takes 'data' and returns the transformed 'data'." },
+                        },
+                        required: ['explanation', 'jsFunctionBody']
+                    }
+                },
+                required: ['responseType', 'thought']
+            }
         }
     },
     required: ['actions']
@@ -938,7 +852,7 @@ ${longTermMemory.length > 0 ? longTermMemory.join('\n---\n') : "No specific long
 - **Dataset Columns**:
     - Categorical: ${categoricalCols.join(', ')}
     - Numerical: ${numericalCols.join(', ')}
-- **Analysis Cards on Screen (IDs and Titles)**:
+- **Analysis Cards on Screen (Sample of up to 100 rows each)**:
     ${cardContext.length > 0 ? JSON.stringify(cardContext, null, 2) : "No cards yet."}
 - **Raw Data Sample (first 20 rows):**
     ${rawDataSample.length > 0 ? JSON.stringify(rawDataSample, null, 2) : "No raw data available."}
@@ -950,25 +864,19 @@ ${recentHistory}
 2.  **plan_creation**: To create a NEW chart. Use a 'defaultTopN' of 8 for readability on high-cardinality columns.
 3.  **dom_action**: To INTERACT with an EXISTING card ('highlightCard', 'changeCardChartType', 'showCardData', 'filterCard').
 4.  **execute_js_code**: For COMPLEX TASKS like creating new columns or complex filtering.
-5.  **confirmation_required**: To ask for user approval before performing a DESTRUCTIVE action.
+5.  **proceed_to_analysis**: DEPRECATED.
 **Decision-Making Process (ReAct Framework):**
 - **THINK (Reason)**: First, you MUST reason about the user's request. What is their goal? Can it be answered from memory, or does it require data analysis? What is the first logical step? Formulate this reasoning and place it in the 'thought' field of your action. This field is MANDATORY for every action.
 - **ACT**: Based on your thought, choose the most appropriate action from your toolset and define its parameters in the same action object.
-**Handling Text Responses to Confirmations**: If your previous turn was a 'confirmation_required' action and the user's latest message is a text response, you must handle it. The original 'actionToConfirm' is now invalid.
-- **Approval**: If they approve (e.g., "yes, go ahead"), your next action should be the original proposed action. Your 'thought' should state that the user confirmed via text.
-- **Cancellation**: If they cancel (e.g., "no, don't do that"), your next action must be a 'text_response' confirming cancellation. Your 'thought' should state the user cancelled.
-- **Correction**: If they provide a correction (e.g., "no, instead filter for 'Canada'"), you MUST treat this as a new request. Discard the original plan and formulate a new plan. Your 'thought' should state that the user provided a correction and you are creating a new plan.
-**CRITICAL SAFETY RULE**: For any action using \`execute_js_code\` that is DESTRUCTIVE (i.e., it removes rows or columns from the dataset), you MUST wrap it in a \`confirmation_required\` action.
-  - The \`confirmation_required\` action must have a \`text\` field explaining clearly what will happen (e.g., "I am about to remove all rows where the 'Category' is 'Obsolete'. This cannot be undone. Please confirm.").
-  - The actual \`execute_js_code\` action must be placed inside the \`actionToConfirm\` field of the \`confirmation_required\` action.
 **Multi-Step Task Planning:** For complex requests that require multiple steps (e.g., "compare X and Y, then summarize"), you MUST adopt a planner persona.
 1.  **Formulate a Plan**: In the \`thought\` of your VERY FIRST action, outline your step-by-step plan. For example: \`thought: "Okay, this is a multi-step request. My plan is: 1. Isolate the data for X. 2. Create an analysis for X. 3. Isolate the data for Y. 4. Create an analysis for Y. 5. Summarize the findings from both analyses."\`
 2.  **Execute the Plan**: Decompose your plan into a sequence of \`actions\`. Each action should have its own \`thought\` explaining that specific step. This allows you to chain tools together to solve the problem.
 - **CRITICAL**: If the user asks where a specific data value comes from (like 'Software Product 10') or how the data was cleaned, you MUST consult the **DATA PREPARATION LOG**. Use a 'text_response' to explain the transformation in simple, non-technical language. You can include snippets of the code using markdown formatting to illustrate your point.
 - **Suggest Next Steps**: After successfully answering the user's request, you should add one final \`text_response\` action to proactively suggest a logical next step or a relevant follow-up question. This guides the user and makes the analysis more conversational. Example: "Now that we've seen the regional breakdown, would you like to explore the top-performing product categories within the East region?"
 - **EXAMPLE of Chaining**:
-  1.  Action 1: { thought: "The user wants to remove rows for 'USA'. This is a destructive action, so I must ask for confirmation first.", responseType: 'confirmation_required', text: "Are you sure you want to remove all rows for 'USA'?", actionToConfirm: { responseType: 'execute_js_code', ... } }
+  1.  Action 1: { thought: "The user is asking for profit margin, but that column doesn't exist. I need to calculate it from 'Revenue' and 'Cost'.", responseType: 'execute_js_code', code: { ... } }
   2.  Action 2: { thought: "Now that I have the 'Profit Margin' column, I need to create a chart to find the product with the highest average margin.", responseType: 'plan_creation', plan: { ... } }
+  3.  Action 3: { thought: "The chart is created. I can now see the result and answer the user's question, explaining what I did.", responseType: 'text_response', text: "I've calculated the profit margin and created a new chart. It looks like 'Product A' has the highest margin." }
 - Always be conversational. Use 'text_response' actions to acknowledge the user and explain what you are doing, especially after a complex series of actions.`;
             
             const response = await withRetry(async () => {
@@ -979,8 +887,7 @@ ${recentHistory}
                         model: settings.model,
                         messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPromptWithContext }],
                         response_format: { type: 'json_object' }
-                    }),
-                    signal: AbortSignal.timeout(60000) // 60-second timeout for chat
+                    })
                 });
                 if (!res.ok) {
                     const errorData = await res.json();
@@ -1011,7 +918,7 @@ ${recentHistory}
                 - **Dataset Columns**:
                     - Categorical: ${categoricalCols.join(', ')}
                     - Numerical: ${numericalCols.join(', ')}
-                - **Analysis Cards on Screen (IDs and Titles)**:
+                - **Analysis Cards on Screen (Sample of up to 100 rows each)**:
                     ${cardContext.length > 0 ? JSON.stringify(cardContext, null, 2) : "No cards yet."}
                 - **Raw Data Sample (first 20 rows):**
                     ${rawDataSample.length > 0 ? JSON.stringify(rawDataSample, null, 2) : "No raw data available."}
@@ -1027,38 +934,31 @@ ${recentHistory}
                 2.  **plan_creation**: To create a NEW chart. Use a 'defaultTopN' of 8 for readability on high-cardinality columns.
                 3.  **dom_action**: To INTERACT with an EXISTING card ('highlightCard', 'changeCardChartType', 'showCardData', 'filterCard').
                 4.  **execute_js_code**: For COMPLEX TASKS like creating new columns or complex filtering.
-                5.  **confirmation_required**: To ask for user approval before performing a DESTRUCTIVE action.
+                5.  **proceed_to_analysis**: DEPRECATED.
 
                 **Decision-Making Process (ReAct Framework):**
                 - **THINK (Reason)**: First, you MUST reason about the user's request. What is their goal? Can it be answered from memory, or does it require data analysis? What is the first logical step? Formulate this reasoning and place it in the 'thought' field of your action. This field is MANDATORY for every action.
                 - **ACT**: Based on your thought, choose the most appropriate action from your toolset and define its parameters in the same action object.
-                **Handling Text Responses to Confirmations**: If your previous turn was a 'confirmation_required' action and the user's latest message is a text response (instead of them clicking a button), you must handle it intelligently. The original 'actionToConfirm' is now invalid.
-                - **If they approve** (e.g., "yes, do it"): Your next action should be the one you originally proposed. Your 'thought' must be "The user confirmed via text, so I will proceed with the action."
-                - **If they cancel** (e.g., "no, stop"): Your next action must be a simple 'text_response' confirming the cancellation. Your 'thought' must be "The user cancelled. I will confirm and await instructions."
-                - **If they provide a correction** (e.g., "no, just for 'USA'"): Treat this as a NEW request. Discard the original plan and create a new plan based on their correction. Your 'thought' must be "The user provided a correction. I will discard the old plan and create a new one."
-                **CRITICAL SAFETY RULE**: For any action using \`execute_js_code\` that is DESTRUCTIVE (i.e., it removes rows or columns from the dataset), you MUST wrap it in a \`confirmation_required\` action.
-                  - The \`confirmation_required\` action must have a \`text\` field explaining clearly what will happen (e.g., "I am about to remove all rows where the 'Category' is 'Obsolete'. This cannot be undone. Please confirm.").
-                  - The actual \`execute_js_code\` action must be placed inside the \`actionToConfirm\` field of the \`confirmation_required\` action.
                 **Multi-Step Task Planning:** For complex requests that require multiple steps (e.g., "compare X and Y, then summarize"), you MUST adopt a planner persona.
                 1.  **Formulate a Plan**: In the \`thought\` of your VERY FIRST action, outline your step-by-step plan. For example: \`thought: "Okay, this is a multi-step request. My plan is: 1. Isolate the data for X. 2. Create an analysis for X. 3. Isolate the data for Y. 4. Create an analysis for Y. 5. Summarize the findings from both analyses."\`
                 2.  **Execute the Plan**: Decompose your plan into a sequence of \`actions\`. Each action should have its own \`thought\` explaining that specific step. This allows you to chain tools together to solve the problem.
                 - **CRITICAL**: If the user asks where a specific data value comes from (like 'Software Product 10') or how the data was cleaned, you MUST consult the **DATA PREPARATION LOG**. Use a 'text_response' to explain the transformation in simple, non-technical language. You can include snippets of the code using markdown formatting to illustrate your point.
                 - **Suggest Next Steps**: After successfully answering the user's request, you should add one final \`text_response\` action to proactively suggest a logical next step or a relevant follow-up question. This guides the user and makes the analysis more conversational. Example: "Now that we've seen the regional breakdown, would you like to explore the top-performing product categories within the East region?"
                 - **EXAMPLE of Chaining**:
-                  1.  Action 1: { thought: "The user wants to remove rows for 'USA'. This is a destructive action, so I must ask for confirmation first.", responseType: 'confirmation_required', text: "Are you sure you want to remove all rows for 'USA'?", actionToConfirm: { responseType: 'execute_js_code', ... } }
+                  1.  Action 1: { thought: "The user is asking for profit margin, but that column doesn't exist. I need to calculate it from 'Revenue' and 'Cost'.", responseType: 'execute_js_code', code: { ... } }
                   2.  Action 2: { thought: "Now that I have the 'Profit Margin' column, I need to create a chart to find the product with the highest average margin.", responseType: 'plan_creation', plan: { ... } }
+                  3.  Action 3: { thought: "The chart is created. I can now see the result and answer the user's question, explaining what I did.", responseType: 'text_response', text: "I've calculated the profit margin and created a new chart. It looks like 'Product A' has the highest margin." }
                 - Always be conversational. Use 'text_response' actions to acknowledge the user and explain what you are doing, especially after a complex series of actions.
                 Your output MUST be a single JSON object with an "actions" key containing an array of action objects.
             `;
-            const geminiCall = ai.models.generateContent({
+            const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
                 model: settings.model as 'gemini-2.5-flash' | 'gemini-2.5-pro',
                 contents: prompt,
                 config: {
                     responseMimeType: 'application/json',
                     responseSchema: multiActionChatResponseSchema,
                 },
-            });
-            const response: GenerateContentResponse = await withRetry(() => withTimeout(geminiCall, 60000));
+            }));
             jsonStr = response.text.trim();
         }
 

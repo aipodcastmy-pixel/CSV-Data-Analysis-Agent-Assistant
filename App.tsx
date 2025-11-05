@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { AnalysisPanel } from './components/AnalysisPanel';
 import { ChatPanel } from './components/ChatPanel';
@@ -399,7 +398,7 @@ const App: React.FC = () => {
     const regenerateAnalyses = useCallback(async (newData: CsvData) => {
         if (!isMounted.current) return;
         addProgress('Data has changed. Regenerating all analysis cards...');
-        setAppState(prev => ({ ...prev, analysisCards: [], finalSummary: null }));
+        setAppState(prev => ({ ...prev, isBusy: true, analysisCards: [], finalSummary: null }));
         
         try {
             const existingPlans = appState.analysisCards.map(card => card.plan);
@@ -420,6 +419,10 @@ const App: React.FC = () => {
              console.error("Error regenerating analyses:", error);
              const errorMessage = error instanceof Error ? error.message : String(error);
              addProgress(`Error updating analyses: ${errorMessage}`, 'error');
+        } finally {
+             if (isMounted.current) {
+                 setAppState(prev => ({ ...prev, isBusy: false }));
+             }
         }
     }, [appState.analysisCards, runAnalysisPipeline, addProgress, settings]);
 
@@ -489,108 +492,6 @@ const App: React.FC = () => {
         });
     }
 
-    const executeSingleAction = useCallback(async (action: AiAction) => {
-        if (!isMounted.current) return;
-
-        if (action.thought) {
-            addProgress(`AI Thought: ${action.thought}`);
-            await new Promise(res => setTimeout(res, 1500));
-        }
-
-        switch (action.responseType) {
-            case 'text_response':
-                if (action.text && isMounted.current) {
-                    const aiMessage: ChatMessage = { sender: 'ai', text: action.text, timestamp: new Date(), type: 'ai_message', cardId: action.cardId };
-                    setAppState(prev => ({...prev, chatHistory: [...prev.chatHistory, aiMessage]}));
-                    await vectorStore.addDocument({id: `chat-${aiMessage.timestamp.getTime()}-ai`, text: `AI responds: "${action.text}"`});
-                }
-                break;
-            case 'plan_creation':
-                if (action.plan && appState.csvData) {
-                    await runAnalysisPipeline([action.plan], appState.csvData, true);
-                }
-                break;
-            case 'dom_action':
-                if (action.domAction) {
-                    executeDomAction(action.domAction);
-                }
-                break;
-            case 'execute_js_code':
-                if (action.code && action.code.jsFunctionBody && appState.csvData) {
-                    addProgress(`AI is performing a complex data transformation: ${action.code.explanation}`);
-                    const newDataArray = executeJavaScriptDataTransform(appState.csvData.data, action.code.jsFunctionBody);
-                    const newData: CsvData = { ...appState.csvData, data: newDataArray };
-                    const newProfiles = profileData(newData.data);
-                    if (isMounted.current) {
-                        setAppState(prev => ({ ...prev, csvData: newData, columnProfiles: newProfiles }));
-                        await regenerateAnalyses(newData);
-                        addProgress("Data transformation successful. All charts have been updated.");
-                    }
-                }
-                break;
-            case 'confirmation_required':
-                if (isMounted.current && action.text && action.actionToConfirm) {
-                    const confirmationMessage: ChatMessage = {
-                        sender: 'ai',
-                        text: action.text,
-                        timestamp: new Date(),
-                        type: 'ai_confirmation_required',
-                        actionToConfirm: action.actionToConfirm,
-                        isConfirmed: false,
-                    };
-                    setAppState(prev => ({ ...prev, chatHistory: [...prev.chatHistory, confirmationMessage] }));
-                } else {
-                    // Defensive coding: Handle cases where the AI fails to provide a valid action to confirm.
-                    console.error("AI requested confirmation but failed to provide a complete 'actionToConfirm' object.", action);
-                    addProgress("AI tried to ask for confirmation but had an internal error.", 'error');
-                    if (isMounted.current) {
-                        const aiMessage: ChatMessage = { 
-                            sender: 'ai', 
-                            text: `I was about to ask for confirmation on an action, but I seem to have made a mistake in formulating my request. Could you please try again?`, 
-                            timestamp: new Date(),
-                            type: 'ai_message',
-                            isError: true,
-                        };
-                        setAppState(prev => ({...prev, chatHistory: [...prev.chatHistory, aiMessage]}));
-                    }
-                }
-                break;
-            default:
-                console.warn('Unknown AI action type:', (action as any).responseType);
-        }
-    }, [appState.csvData, runAnalysisPipeline, regenerateAnalyses, addProgress]);
-
-
-    const handleConfirmAction = useCallback(async (confirmedAction: AiAction, originalMessage: ChatMessage) => {
-        if (!isMounted.current) return;
-        
-        // Mark the original message as confirmed to disable its buttons
-        setAppState(prev => ({
-            ...prev,
-            isBusy: true,
-            chatHistory: prev.chatHistory.map(msg => 
-                msg.timestamp === originalMessage.timestamp 
-                    ? { ...msg, isConfirmed: true, text: `${msg.text}\n\n[User confirmed action.]` } 
-                    : msg
-            )
-        }));
-        
-        try {
-            // Execute the confirmed action directly. No need for a follow-up call to the AI.
-            await executeSingleAction(confirmedAction);
-        } catch (error) {
-            console.error('Error executing confirmed action:', error);
-            const errorMessage = error instanceof Error ? error.message : String(error);
-            addProgress(`Error during confirmed action: ${errorMessage}`, 'error');
-        } finally {
-             if (isMounted.current) {
-                // Once the action is complete, set the app state to not busy.
-                setAppState(prev => ({ ...prev, isBusy: false }));
-            }
-        }
-    }, [executeSingleAction, addProgress]);
-
-
      const handleChatMessage = useCallback(async (message: string) => {
         if (!appState.csvData || !appState.columnProfiles.length) {
             addProgress("Please upload a CSV file first.", "error");
@@ -602,41 +503,14 @@ const App: React.FC = () => {
             setIsSettingsModalOpen(true);
             return;
         }
+        
         if (!vectorStore.getIsInitialized()) {
             await vectorStore.init(addProgress);
         }
+
         if (!isMounted.current) return;
-
-        const lastMessage = appState.chatHistory.length > 0 ? appState.chatHistory[appState.chatHistory.length - 1] : null;
-
         const newChatMessage: ChatMessage = { sender: 'user', text: message, timestamp: new Date(), type: 'user_message' };
-        setAppState(prev => ({ ...prev, chatHistory: [...prev.chatHistory, newChatMessage] }));
-        
-        const isRespondingToConfirmation = lastMessage?.type === 'ai_confirmation_required' && !lastMessage.isConfirmed;
-        const affirmativeResponses = ['yes', 'yep', 'ok', 'okay', 'confirm', 'proceed', 'go ahead', 'do it', 'y'];
-        const isSimpleConfirmation = affirmativeResponses.includes(message.toLowerCase().trim());
-
-        if (isRespondingToConfirmation && isSimpleConfirmation && lastMessage.actionToConfirm) {
-            // User confirmed with simple text. Treat it like a button click. More robust.
-            await handleConfirmAction(lastMessage.actionToConfirm, lastMessage);
-            return;
-        }
-        
-        setAppState(prev => ({ ...prev, isBusy: true }));
-
-        let historyForAI = [...appState.chatHistory]; // Use the latest state which includes the new user message
-
-        if (isRespondingToConfirmation) {
-            // This is a "no" or a correction. Mark the original message as handled and let the AI figure it out.
-             historyForAI = historyForAI.map(msg =>
-                (msg.timestamp === lastMessage.timestamp)
-                    ? { ...msg, isConfirmed: true, text: `${msg.text}\n\n[User responded via text.]` }
-                    : msg
-            );
-            // Update UI state immediately
-            setAppState(prev => ({ ...prev, chatHistory: historyForAI }));
-        }
-
+        setAppState(prev => ({ ...prev, isBusy: true, chatHistory: [...prev.chatHistory, newChatMessage] }));
         await vectorStore.addDocument({id: `chat-${newChatMessage.timestamp.getTime()}-user`, text: `User asks: "${message}"`});
 
         try {
@@ -649,12 +523,12 @@ const App: React.FC = () => {
             const cardContext: CardContext[] = appState.analysisCards.map(c => ({
                 id: c.id,
                 title: c.plan.title,
-                aggregatedDataSample: [],
+                aggregatedDataSample: c.aggregatedData.slice(0, 100),
             }));
 
             const response = await generateChatResponse(
                 appState.columnProfiles,
-                historyForAI,
+                appState.chatHistory,
                 message,
                 cardContext,
                 settings,
@@ -683,10 +557,78 @@ const App: React.FC = () => {
                 await sleep(1000);
             }
 
-            for (const action of actions) {
+            for (const [index, action] of actions.entries()) {
                 if (!isMounted.current) break;
-                await executeSingleAction(action);
-                 if (actions.length > 1) {
+
+                if (action.thought) {
+                    // The first thought of a multi-step plan is already displayed in the chat.
+                    // We only log subsequent thoughts for individual steps, or thoughts for single-step actions.
+                    if (index > 0 || actions.length === 1) {
+                        addProgress(`AI Thought: ${action.thought}`);
+                        await sleep(1500); // Give user time to read the thought
+                    }
+                }
+                
+                switch (action.responseType) {
+                    case 'text_response':
+                        if (action.text && isMounted.current) {
+                            const aiMessage: ChatMessage = { 
+                                sender: 'ai', 
+                                text: action.text, 
+                                timestamp: new Date(),
+                                type: 'ai_message',
+                                cardId: action.cardId
+                            };
+                            setAppState(prev => ({...prev, chatHistory: [...prev.chatHistory, aiMessage]}));
+                            await vectorStore.addDocument({id: `chat-${aiMessage.timestamp.getTime()}-ai`, text: `AI responds: "${action.text}"`});
+                        }
+                        break;
+                    case 'plan_creation':
+                        if (action.plan && appState.csvData) {
+                            await runAnalysisPipeline([action.plan], appState.csvData, true);
+                        }
+                        break;
+                    case 'dom_action':
+                        if (action.domAction) {
+                            executeDomAction(action.domAction);
+                        }
+                        break;
+                    case 'execute_js_code':
+                        if (action.code && action.code.jsFunctionBody && appState.csvData) {
+                            addProgress(`AI is performing a complex data transformation: ${action.code.explanation}`);
+                            const newDataArray = executeJavaScriptDataTransform(appState.csvData.data, action.code.jsFunctionBody);
+                            const newData: CsvData = { ...appState.csvData, data: newDataArray };
+                            const newProfiles = profileData(newData.data);
+
+                             if (isMounted.current) {
+                                setAppState(prev => ({
+                                    ...prev,
+                                    csvData: newData,
+                                    columnProfiles: newProfiles
+                                }));
+                                await regenerateAnalyses(newData);
+                                addProgress("Data transformation successful. All charts have been updated.");
+                             }
+                        }
+                        break;
+                    case 'proceed_to_analysis':
+                        // This action is deprecated but kept for compatibility.
+                        // The flow is now automatic. We can add a user message.
+                         if (isMounted.current) {
+                            const aiMessage: ChatMessage = { 
+                                sender: 'ai', 
+                                text: "The initial analysis is already complete. You can ask me to create new charts or modify the data.", 
+                                timestamp: new Date(),
+                                type: 'ai_message',
+                            };
+                            setAppState(prev => ({...prev, chatHistory: [...prev.chatHistory, aiMessage]}));
+                        }
+                        break;
+                    default:
+                        console.warn('Unknown AI action type:', (action as any).responseType);
+                }
+
+                if (actions.length > 1) {
                     await sleep(750);
                 }
             }
@@ -709,24 +651,7 @@ const App: React.FC = () => {
                 setAppState(prev => ({ ...prev, isBusy: false }));
             }
         }
-    }, [appState, addProgress, settings, isApiKeySet, executeSingleAction, handleConfirmAction]);
-    
-    const handleCancelAction = useCallback(async (originalMessage: ChatMessage) => {
-         if (!isMounted.current) return;
-        // Mark the original message as confirmed (action taken) to disable its buttons
-        setAppState(prev => ({
-            ...prev,
-            chatHistory: prev.chatHistory.map(msg => 
-                msg.timestamp === originalMessage.timestamp 
-                    ? { ...msg, isConfirmed: true, text: `${msg.text}\n\n[User cancelled action.]` } 
-                    : msg
-            )
-        }));
-        
-        // Inform the AI that the action was cancelled so it can ask for new instructions.
-        await handleChatMessage("I have cancelled that action. What would you like to do instead?");
-
-    }, [handleChatMessage]);
+    }, [appState, addProgress, runAnalysisPipeline, settings, regenerateAnalyses, isApiKeySet]);
     
     const handleChartTypeChange = (cardId: string, newType: ChartType) => {
         setAppState(prev => ({
@@ -827,27 +752,6 @@ const App: React.FC = () => {
         addProgress('New session started. Please upload a file.');
     };
 
-    const handleDeleteRow = useCallback(async (originalIndex: number) => {
-        if (!appState.csvData) return;
-
-        const rowToDelete = appState.csvData.data[originalIndex];
-        const rowPreview = Object.entries(rowToDelete).slice(0, 3).map(([k, v]) => `${k}: ${v}`).join('\n');
-        
-        if (window.confirm(`Are you sure you want to permanently delete this row?\n\n${rowPreview}\n...`)) {
-            addProgress(`Deleting row ${originalIndex + 1}...`);
-            
-            const newDataArray = appState.csvData.data.filter((_, index) => index !== originalIndex);
-            const newData: CsvData = { ...appState.csvData, data: newDataArray };
-            const newProfiles = profileData(newData.data);
-
-            if (isMounted.current) {
-                setAppState(prev => ({ ...prev, csvData: newData, columnProfiles: newProfiles }));
-                await regenerateAnalyses(newData);
-                addProgress(`Row deleted. All analyses have been updated to reflect this change.`);
-            }
-        }
-    }, [appState.csvData, regenerateAnalyses, addProgress]);
-
 
     const { isBusy, progressMessages, csvData, analysisCards, chatHistory, finalSummary, currentView } = appState;
 
@@ -892,7 +796,6 @@ const App: React.FC = () => {
                         csvData={csvData}
                         isVisible={isSpreadsheetVisible}
                         onToggleVisibility={() => setIsSpreadsheetVisible(prev => !prev)}
-                        onDeleteRow={handleDeleteRow}
                     />
                 </div>
             </div>
@@ -969,8 +872,6 @@ const App: React.FC = () => {
                             onOpenSettings={() => setIsSettingsModalOpen(true)}
                             onOpenMemory={() => setIsMemoryPanelOpen(true)}
                             onShowCard={handleShowCardFromChat}
-                            onConfirmAction={handleConfirmAction}
-                            onCancelAction={handleCancelAction}
                             currentView={currentView}
                         />
                     </aside>

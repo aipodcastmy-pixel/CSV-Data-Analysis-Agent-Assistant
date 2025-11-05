@@ -1,14 +1,12 @@
-
 import React, { useState } from 'react';
 import { CsvRow, SortConfig } from '../types';
 
 interface SpreadsheetTableProps {
-    data: (CsvRow & { _originalIndex: number })[];
+    data: CsvRow[];
     sortConfig: SortConfig | null;
     onSort: (key: string) => void;
     columnWidths: { [key: string]: number };
     onColumnResizeStart: (header: string, e: React.MouseEvent) => void;
-    onDeleteRow: (originalIndex: number) => void;
 }
 
 const ROWS_PER_PAGE = 50;
@@ -20,21 +18,15 @@ const SortIcon: React.FC<{ direction?: 'ascending' | 'descending' }> = ({ direct
     return direction === 'ascending' ? <span className="text-slate-800">↑</span> : <span className="text-slate-800">↓</span>;
 };
 
-const DeleteIcon: React.FC = () => (
-     <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-    </svg>
-);
 
-
-export const SpreadsheetTable: React.FC<SpreadsheetTableProps> = ({ data, sortConfig, onSort, columnWidths, onColumnResizeStart, onDeleteRow }) => {
+export const SpreadsheetTable: React.FC<SpreadsheetTableProps> = ({ data, sortConfig, onSort, columnWidths, onColumnResizeStart }) => {
     const [currentPage, setCurrentPage] = useState(0);
 
     if (!data || data.length === 0) {
         return <p className="text-slate-500 p-4 text-center">No data matches your search.</p>;
     }
 
-    const headers = Object.keys(data[0]).filter(h => h !== '_originalIndex');
+    const headers = Object.keys(data[0]);
     const totalPages = Math.ceil(data.length / ROWS_PER_PAGE);
     const startIndex = currentPage * ROWS_PER_PAGE;
     const paginatedData = data.slice(startIndex, startIndex + ROWS_PER_PAGE);
@@ -66,7 +58,6 @@ export const SpreadsheetTable: React.FC<SpreadsheetTableProps> = ({ data, sortCo
                     <thead className="bg-slate-100 text-slate-600 sticky top-0 z-10">
                         <tr>
                             <th className="p-2 font-semibold text-slate-500 text-center sticky left-0 z-20 bg-slate-100 border-r border-slate-200" style={{width: '60px'}}>#</th>
-                            <th className="p-2 font-semibold text-slate-500 text-center sticky left-[60px] z-20 bg-slate-100 border-r border-slate-200" style={{width: '70px'}}>Actions</th>
                             {headers.map((header, index) => (
                                 <th 
                                     key={header} 
@@ -87,17 +78,8 @@ export const SpreadsheetTable: React.FC<SpreadsheetTableProps> = ({ data, sortCo
                     </thead>
                     <tbody className="bg-white">
                         {paginatedData.map((row, rowIndex) => (
-                            <tr key={rowIndex} className="border-b border-slate-200 last:border-b-0 hover:bg-slate-50 group">
-                                <td className="p-2 text-slate-400 text-center sticky left-0 z-10 bg-white border-r border-slate-200 group-hover:bg-slate-50" style={{width: '60px'}}>{startIndex + rowIndex + 1}</td>
-                                <td className="p-2 text-center sticky left-[60px] z-10 bg-white border-r border-slate-200 group-hover:bg-slate-50" style={{width: '70px'}}>
-                                    <button
-                                        onClick={() => onDeleteRow(row._originalIndex)}
-                                        className="p-1 text-slate-400 rounded-full hover:bg-red-100 hover:text-red-600 transition-colors"
-                                        title="Delete Row"
-                                    >
-                                        <DeleteIcon />
-                                    </button>
-                                </td>
+                            <tr key={rowIndex} className="border-b border-slate-200 last:border-b-0 hover:bg-slate-50">
+                                <td className="p-2 text-slate-400 text-center sticky left-0 z-10 bg-white border-r border-slate-200" style={{width: '60px'}}>{startIndex + rowIndex + 1}</td>
                                 {headers.map(header => (
                                     <td key={`${rowIndex}-${header}`} className="p-2 text-slate-700 whitespace-nowrap overflow-hidden text-ellipsis border-r border-l border-slate-200">
                                         {formatValue(row[header])}
