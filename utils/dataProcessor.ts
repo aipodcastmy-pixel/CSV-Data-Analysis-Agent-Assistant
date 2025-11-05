@@ -173,20 +173,32 @@ export const applyTopNWithOthers = (data: CsvRow[], groupByKey: string, valueKey
 export const processCsv = (file: File): Promise<CsvData> => {
     return new Promise((resolve, reject) => {
         Papa.parse(file, {
-            header: true,
+            header: false, // CRITICAL FIX: Do not assume the first row is a header.
             skipEmptyLines: true,
             worker: true,
-            delimiter: ",", // Explicitly set the delimiter to fix parsing issues with complex files.
-            complete: (results: { data: CsvRow[] }) => {
-                const sanitizedData = results.data.map(row => {
+            complete: (results: { data: string[][] }) => {
+                if (results.data.length === 0) {
+                    resolve({ fileName: file.name, data: [] });
+                    return;
+                }
+                
+                // Find the maximum number of columns across all rows to create a consistent object structure.
+                const maxCols = results.data.reduce((max, row) => Math.max(max, row.length), 0);
+                // Create generic headers (e.g., column_1, column_2) for the AI to reference.
+                const genericHeaders = Array.from({ length: maxCols }, (_, i) => `column_${i + 1}`);
+                
+                // Convert the array of arrays into an array of objects with generic keys.
+                // This provides a stable structure for the AI to analyze, regardless of the file's header position.
+                const objectData = results.data.map(rowArray => {
                     const newRow: CsvRow = {};
-                    for (const key in row) {
-                        newRow[key] = sanitizeValue(String(row[key]));
-                    }
+                    genericHeaders.forEach((header, index) => {
+                        const value = rowArray[index] !== undefined ? rowArray[index] : ''; // Handle jagged rows
+                        newRow[header] = sanitizeValue(String(value));
+                    });
                     return newRow;
                 });
-                // Fix: Resolve with a CsvData object instead of just the array of rows.
-                resolve({ fileName: file.name, data: sanitizedData });
+
+                resolve({ fileName: file.name, data: objectData });
             },
             error: (error: Error) => {
                 reject(error);
