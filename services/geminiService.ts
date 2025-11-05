@@ -1,6 +1,6 @@
 // This service now handles both Google Gemini and OpenAI models.
 import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
-import { AnalysisPlan, CsvData, ColumnProfile, AnalysisCardData, AiChatResponse, ChatMessage, Settings, DataPreparationPlan, CardContext, CsvRow, AppView } from '../types';
+import { AnalysisPlan, CsvData, ColumnProfile, AnalysisCardData, AiChatResponse, ChatMessage, Settings, DataPreparationPlan, CardContext, CsvRow, AppView, AiAction } from '../types';
 import { executePlan } from "../utils/dataProcessor";
 
 // Helper for retrying API calls
@@ -753,6 +753,55 @@ const singlePlanSchema = {
     required: ['chartType', 'title', 'description'],
 };
 
+const aiActionSchema = {
+    type: Type.OBJECT,
+    properties: {
+        thought: { type: Type.STRING, description: "The AI's reasoning or thought process before performing the action. This explains *why* this action is being taken. This is a mandatory part of the ReAct pattern." },
+        responseType: { type: Type.STRING, enum: ['text_response', 'plan_creation', 'dom_action', 'execute_js_code', 'proceed_to_analysis', 'confirmation_required'] },
+        text: { type: Type.STRING, description: "A conversational text response to the user. Required for 'text_response' and 'confirmation_required'." },
+        cardId: { type: Type.STRING, description: "Optional. The ID of the card this text response refers to. Used to link text to a specific chart." },
+        plan: {
+            ...singlePlanSchema,
+            description: "Analysis plan object. Required for 'plan_creation'."
+        },
+        domAction: {
+            type: Type.OBJECT,
+            description: "A DOM manipulation action for the frontend to execute. Required for 'dom_action'.",
+            properties: {
+                toolName: { type: Type.STRING, enum: ['highlightCard', 'changeCardChartType', 'showCardData', 'filterCard'] },
+                args: {
+                    type: Type.OBJECT,
+                    description: 'Arguments for the tool. e.g., { cardId: "..." }',
+                    properties: {
+                        cardId: { type: Type.STRING, description: 'The ID of the target analysis card.' },
+                        newType: { type: Type.STRING, enum: ['bar', 'line', 'pie', 'doughnut', 'scatter'], description: "For 'changeCardChartType'." },
+                        visible: { type: Type.BOOLEAN, description: "For 'showCardData'." },
+                        column: { type: Type.STRING, description: "For 'filterCard', the column to filter on." },
+                        values: { type: Type.ARRAY, items: { type: Type.STRING }, description: "For 'filterCard', the values to include." },
+                    },
+                    required: ['cardId'],
+                },
+            },
+            required: ['toolName', 'args']
+        },
+        code: {
+            type: Type.OBJECT,
+            description: "For 'execute_js_code', the code to run.",
+            properties: {
+                explanation: { type: Type.STRING, description: "A brief, user-facing explanation of what the code will do." },
+                jsFunctionBody: { type: Type.STRING, description: "The body of a JavaScript function that takes 'data' and returns the transformed 'data'." },
+            },
+            required: ['explanation', 'jsFunctionBody']
+        },
+        actionToConfirm: {
+            // A recursive-like definition for the nested action
+            type: Type.OBJECT,
+            description: "The action that requires confirmation. Required for 'confirmation_required'.",
+        }
+    },
+    required: ['responseType', 'thought']
+};
+
 
 const multiActionChatResponseSchema = {
     type: Type.OBJECT,
@@ -760,49 +809,7 @@ const multiActionChatResponseSchema = {
         actions: {
             type: Type.ARRAY,
             description: "A sequence of actions for the assistant to perform.",
-            items: {
-                type: Type.OBJECT,
-                properties: {
-                    thought: { type: Type.STRING, description: "The AI's reasoning or thought process before performing the action. This explains *why* this action is being taken. This is a mandatory part of the ReAct pattern." },
-                    responseType: { type: Type.STRING, enum: ['text_response', 'plan_creation', 'dom_action', 'execute_js_code', 'proceed_to_analysis'] },
-                    text: { type: Type.STRING, description: "A conversational text response to the user. Required for 'text_response'." },
-                    cardId: { type: Type.STRING, description: "Optional. The ID of the card this text response refers to. Used to link text to a specific chart." },
-                    plan: {
-                        ...singlePlanSchema,
-                        description: "Analysis plan object. Required for 'plan_creation'."
-                    },
-                    domAction: {
-                        type: Type.OBJECT,
-                        description: "A DOM manipulation action for the frontend to execute. Required for 'dom_action'.",
-                        properties: {
-                            toolName: { type: Type.STRING, enum: ['highlightCard', 'changeCardChartType', 'showCardData', 'filterCard'] },
-                            args: {
-                                type: Type.OBJECT,
-                                description: 'Arguments for the tool. e.g., { cardId: "..." }',
-                                properties: {
-                                    cardId: { type: Type.STRING, description: 'The ID of the target analysis card.' },
-                                    newType: { type: Type.STRING, enum: ['bar', 'line', 'pie', 'doughnut', 'scatter'], description: "For 'changeCardChartType'." },
-                                    visible: { type: Type.BOOLEAN, description: "For 'showCardData'." },
-                                    column: { type: Type.STRING, description: "For 'filterCard', the column to filter on." },
-                                    values: { type: Type.ARRAY, items: { type: Type.STRING }, description: "For 'filterCard', the values to include." },
-                                },
-                                required: ['cardId'],
-                            },
-                        },
-                        required: ['toolName', 'args']
-                    },
-                    code: {
-                        type: Type.OBJECT,
-                        description: "For 'execute_js_code', the code to run.",
-                        properties: {
-                            explanation: { type: Type.STRING, description: "A brief, user-facing explanation of what the code will do." },
-                            jsFunctionBody: { type: Type.STRING, description: "The body of a JavaScript function that takes 'data' and returns the transformed 'data'." },
-                        },
-                        required: ['explanation', 'jsFunctionBody']
-                    }
-                },
-                required: ['responseType', 'thought']
-            }
+            items: aiActionSchema,
         }
     },
     required: ['actions']
@@ -864,19 +871,26 @@ ${recentHistory}
 2.  **plan_creation**: To create a NEW chart. Use a 'defaultTopN' of 8 for readability on high-cardinality columns.
 3.  **dom_action**: To INTERACT with an EXISTING card ('highlightCard', 'changeCardChartType', 'showCardData', 'filterCard').
 4.  **execute_js_code**: For COMPLEX TASKS like creating new columns or complex filtering.
-5.  **proceed_to_analysis**: DEPRECATED.
+5.  **confirmation_required**: To ask for user approval before performing a DESTRUCTIVE action.
+6.  **proceed_to_analysis**: DEPRECATED.
 **Decision-Making Process (ReAct Framework):**
 - **THINK (Reason)**: First, you MUST reason about the user's request. What is their goal? Can it be answered from memory, or does it require data analysis? What is the first logical step? Formulate this reasoning and place it in the 'thought' field of your action. This field is MANDATORY for every action.
 - **ACT**: Based on your thought, choose the most appropriate action from your toolset and define its parameters in the same action object.
+**Handling Text Responses to Confirmations**: If your previous turn was a 'confirmation_required' action and the user's latest message is a text response, you must handle it. The original 'actionToConfirm' is now invalid.
+- **Approval**: If they approve (e.g., "yes, go ahead"), your next action should be the original proposed action. Your 'thought' should state that the user confirmed via text.
+- **Cancellation**: If they cancel (e.g., "no, don't do that"), your next action must be a 'text_response' confirming cancellation. Your 'thought' should state the user cancelled.
+- **Correction**: If they provide a correction (e.g., "no, instead filter for 'Canada'"), you MUST treat this as a new request. Discard the original plan and formulate a new plan. Your 'thought' should state that the user provided a correction and you are creating a new plan.
+**CRITICAL SAFETY RULE**: For any action using \`execute_js_code\` that is DESTRUCTIVE (i.e., it removes rows or columns from the dataset), you MUST wrap it in a \`confirmation_required\` action.
+  - The \`confirmation_required\` action must have a \`text\` field explaining clearly what will happen (e.g., "I am about to remove all rows where the 'Category' is 'Obsolete'. This cannot be undone. Please confirm.").
+  - The actual \`execute_js_code\` action must be placed inside the \`actionToConfirm\` field of the \`confirmation_required\` action.
 **Multi-Step Task Planning:** For complex requests that require multiple steps (e.g., "compare X and Y, then summarize"), you MUST adopt a planner persona.
 1.  **Formulate a Plan**: In the \`thought\` of your VERY FIRST action, outline your step-by-step plan. For example: \`thought: "Okay, this is a multi-step request. My plan is: 1. Isolate the data for X. 2. Create an analysis for X. 3. Isolate the data for Y. 4. Create an analysis for Y. 5. Summarize the findings from both analyses."\`
 2.  **Execute the Plan**: Decompose your plan into a sequence of \`actions\`. Each action should have its own \`thought\` explaining that specific step. This allows you to chain tools together to solve the problem.
 - **CRITICAL**: If the user asks where a specific data value comes from (like 'Software Product 10') or how the data was cleaned, you MUST consult the **DATA PREPARATION LOG**. Use a 'text_response' to explain the transformation in simple, non-technical language. You can include snippets of the code using markdown formatting to illustrate your point.
 - **Suggest Next Steps**: After successfully answering the user's request, you should add one final \`text_response\` action to proactively suggest a logical next step or a relevant follow-up question. This guides the user and makes the analysis more conversational. Example: "Now that we've seen the regional breakdown, would you like to explore the top-performing product categories within the East region?"
 - **EXAMPLE of Chaining**:
-  1.  Action 1: { thought: "The user is asking for profit margin, but that column doesn't exist. I need to calculate it from 'Revenue' and 'Cost'.", responseType: 'execute_js_code', code: { ... } }
+  1.  Action 1: { thought: "The user wants to remove rows for 'USA'. This is a destructive action, so I must ask for confirmation first.", responseType: 'confirmation_required', text: "Are you sure you want to remove all rows for 'USA'?", actionToConfirm: { responseType: 'execute_js_code', ... } }
   2.  Action 2: { thought: "Now that I have the 'Profit Margin' column, I need to create a chart to find the product with the highest average margin.", responseType: 'plan_creation', plan: { ... } }
-  3.  Action 3: { thought: "The chart is created. I can now see the result and answer the user's question, explaining what I did.", responseType: 'text_response', text: "I've calculated the profit margin and created a new chart. It looks like 'Product A' has the highest margin." }
 - Always be conversational. Use 'text_response' actions to acknowledge the user and explain what you are doing, especially after a complex series of actions.`;
             
             const response = await withRetry(async () => {
@@ -934,20 +948,27 @@ ${recentHistory}
                 2.  **plan_creation**: To create a NEW chart. Use a 'defaultTopN' of 8 for readability on high-cardinality columns.
                 3.  **dom_action**: To INTERACT with an EXISTING card ('highlightCard', 'changeCardChartType', 'showCardData', 'filterCard').
                 4.  **execute_js_code**: For COMPLEX TASKS like creating new columns or complex filtering.
-                5.  **proceed_to_analysis**: DEPRECATED.
+                5.  **confirmation_required**: To ask for user approval before performing a DESTRUCTIVE action.
+                6.  **proceed_to_analysis**: DEPRECATED.
 
                 **Decision-Making Process (ReAct Framework):**
                 - **THINK (Reason)**: First, you MUST reason about the user's request. What is their goal? Can it be answered from memory, or does it require data analysis? What is the first logical step? Formulate this reasoning and place it in the 'thought' field of your action. This field is MANDATORY for every action.
                 - **ACT**: Based on your thought, choose the most appropriate action from your toolset and define its parameters in the same action object.
+                **Handling Text Responses to Confirmations**: If your previous turn was a 'confirmation_required' action and the user's latest message is a text response (instead of them clicking a button), you must handle it intelligently. The original 'actionToConfirm' is now invalid.
+                - **If they approve** (e.g., "yes, do it"): Your next action should be the one you originally proposed. Your 'thought' must be "The user confirmed via text, so I will proceed with the action."
+                - **If they cancel** (e.g., "no, stop"): Your next action must be a simple 'text_response' confirming the cancellation. Your 'thought' must be "The user cancelled. I will confirm and await instructions."
+                - **If they provide a correction** (e.g., "no, just for 'USA'"): Treat this as a NEW request. Discard the original plan and create a new plan based on their correction. Your 'thought' must be "The user provided a correction. I will discard the old plan and create a new one."
+                **CRITICAL SAFETY RULE**: For any action using \`execute_js_code\` that is DESTRUCTIVE (i.e., it removes rows or columns from the dataset), you MUST wrap it in a \`confirmation_required\` action.
+                  - The \`confirmation_required\` action must have a \`text\` field explaining clearly what will happen (e.g., "I am about to remove all rows where the 'Category' is 'Obsolete'. This cannot be undone. Please confirm.").
+                  - The actual \`execute_js_code\` action must be placed inside the \`actionToConfirm\` field of the \`confirmation_required\` action.
                 **Multi-Step Task Planning:** For complex requests that require multiple steps (e.g., "compare X and Y, then summarize"), you MUST adopt a planner persona.
                 1.  **Formulate a Plan**: In the \`thought\` of your VERY FIRST action, outline your step-by-step plan. For example: \`thought: "Okay, this is a multi-step request. My plan is: 1. Isolate the data for X. 2. Create an analysis for X. 3. Isolate the data for Y. 4. Create an analysis for Y. 5. Summarize the findings from both analyses."\`
                 2.  **Execute the Plan**: Decompose your plan into a sequence of \`actions\`. Each action should have its own \`thought\` explaining that specific step. This allows you to chain tools together to solve the problem.
                 - **CRITICAL**: If the user asks where a specific data value comes from (like 'Software Product 10') or how the data was cleaned, you MUST consult the **DATA PREPARATION LOG**. Use a 'text_response' to explain the transformation in simple, non-technical language. You can include snippets of the code using markdown formatting to illustrate your point.
                 - **Suggest Next Steps**: After successfully answering the user's request, you should add one final \`text_response\` action to proactively suggest a logical next step or a relevant follow-up question. This guides the user and makes the analysis more conversational. Example: "Now that we've seen the regional breakdown, would you like to explore the top-performing product categories within the East region?"
                 - **EXAMPLE of Chaining**:
-                  1.  Action 1: { thought: "The user is asking for profit margin, but that column doesn't exist. I need to calculate it from 'Revenue' and 'Cost'.", responseType: 'execute_js_code', code: { ... } }
+                  1.  Action 1: { thought: "The user wants to remove rows for 'USA'. This is a destructive action, so I must ask for confirmation first.", responseType: 'confirmation_required', text: "Are you sure you want to remove all rows for 'USA'?", actionToConfirm: { responseType: 'execute_js_code', ... } }
                   2.  Action 2: { thought: "Now that I have the 'Profit Margin' column, I need to create a chart to find the product with the highest average margin.", responseType: 'plan_creation', plan: { ... } }
-                  3.  Action 3: { thought: "The chart is created. I can now see the result and answer the user's question, explaining what I did.", responseType: 'text_response', text: "I've calculated the profit margin and created a new chart. It looks like 'Product A' has the highest margin." }
                 - Always be conversational. Use 'text_response' actions to acknowledge the user and explain what you are doing, especially after a complex series of actions.
                 Your output MUST be a single JSON object with an "actions" key containing an array of action objects.
             `;

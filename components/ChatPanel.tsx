@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ProgressMessage, ChatMessage, AppView } from '../types';
+import { ProgressMessage, ChatMessage, AppView, AiAction } from '../types';
 
 interface ChatPanelProps {
     progressMessages: ProgressMessage[];
@@ -11,6 +11,8 @@ interface ChatPanelProps {
     onOpenSettings: () => void;
     onOpenMemory: () => void;
     onShowCard: (cardId: string) => void;
+    onConfirmAction: (action: AiAction, message: ChatMessage) => void;
+    onCancelAction: (message: ChatMessage) => void;
     currentView: AppView;
 }
 
@@ -34,9 +36,12 @@ const MemoryIcon: React.FC = () => (
 );
 
 
-export const ChatPanel: React.FC<ChatPanelProps> = ({ progressMessages, chatHistory, isBusy, onSendMessage, isApiKeySet, onToggleVisibility, onOpenSettings, onOpenMemory, onShowCard, currentView }) => {
+export const ChatPanel: React.FC<ChatPanelProps> = ({ progressMessages, chatHistory, isBusy, onSendMessage, isApiKeySet, onToggleVisibility, onOpenSettings, onOpenMemory, onShowCard, onConfirmAction, onCancelAction, currentView }) => {
     const [input, setInput] = useState('');
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    
+    const lastMessage = chatHistory.length > 0 ? chatHistory[chatHistory.length - 1] : null;
+    const isConfirmationPending = lastMessage?.type === 'ai_confirmation_required' && !lastMessage.isConfirmed;
 
     const timeline = [...progressMessages, ...chatHistory]
         .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
@@ -57,8 +62,8 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ progressMessages, chatHist
 
     const getPlaceholder = () => {
         if (!isApiKeySet) return "Set API Key in settings to chat";
+        if (isConfirmationPending) return "Type 'yes' to confirm, 'no' to cancel, or provide a correction...";
         switch (currentView) {
-            // Fix: Removed 'data_preview' case as it's not a valid AppView type and merged its intent.
             case 'analysis_dashboard':
                 return "Ask for a new analysis or data transformation...";
             case 'file_upload':
@@ -115,6 +120,35 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ progressMessages, chatHist
                 )
             }
 
+            if (msg.type === 'ai_confirmation_required') {
+                return (
+                     <div key={`chat-${index}`} className="my-2 p-3 bg-amber-50 border border-amber-300 rounded-lg">
+                        <div className="flex items-center text-amber-800 mb-2">
+                             <span className="text-lg mr-2">⚠️</span>
+                             <h4 className="font-semibold">Confirmation Required</h4>
+                        </div>
+                        <p className="text-sm text-slate-700 whitespace-pre-wrap">{msg.text}</p>
+                        {!msg.isConfirmed && msg.actionToConfirm && (
+                            <div className="mt-3 flex items-center space-x-3">
+                                <button
+                                    onClick={() => onConfirmAction(msg.actionToConfirm!, msg)}
+                                    disabled={isBusy || (isConfirmationPending && input.trim() !== '')}
+                                    className="px-3 py-1 bg-blue-600 text-white text-sm font-semibold rounded-md hover:bg-blue-700 transition-colors disabled:bg-blue-300 disabled:opacity-50"
+                                >
+                                    Confirm
+                                </button>
+                                 <button
+                                    onClick={() => onCancelAction(msg)}
+                                    disabled={isBusy || (isConfirmationPending && input.trim() !== '')}
+                                    className="px-3 py-1 bg-slate-200 text-slate-800 text-sm font-medium rounded-md hover:bg-slate-300 transition-colors disabled:opacity-50"
+                                >
+                                    Cancel
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                );
+            }
 
             if (msg.sender === 'user') {
                 return (
@@ -129,7 +163,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ progressMessages, chatHist
             return (
                 <div key={`chat-${index}`} className="flex">
                     <div className={`rounded-lg px-3 py-2 max-w-xs lg:max-w-md ${msg.isError ? 'bg-red-100' : 'bg-slate-200'}`}>
-                         <p className={`text-sm ${msg.isError ? 'text-red-800' : 'text-slate-800'}`}>{msg.text}</p>
+                         <p className={`text-sm whitespace-pre-wrap ${msg.isError ? 'text-red-800' : 'text-slate-800'}`}>{msg.text}</p>
                          {msg.cardId && !msg.isError && (
                             <button 
                                 onClick={() => onShowCard(msg.cardId!)}
@@ -208,8 +242,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ progressMessages, chatHist
                     />
                 </form>
                  <div className="text-xs text-slate-400 mt-2">
-                    {/* Fix: Replaced check against deprecated 'data_preview' view. The logic is updated to only show example prompts on the analysis dashboard. */}
-                    {currentView === 'analysis_dashboard' 
+                    {currentView === 'analysis_dashboard' && !isConfirmationPending
                         ? 'e.g., "Sum of sales by region", or "Remove rows for USA"'
                         : ''
                     }

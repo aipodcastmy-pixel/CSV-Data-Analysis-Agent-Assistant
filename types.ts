@@ -54,9 +54,11 @@ export interface ChatMessage {
     sender: 'user' | 'ai';
     text: string;
     timestamp: Date;
-    type?: 'user_message' | 'ai_message' | 'ai_thinking' | 'ai_proactive_insight' | 'ai_plan_start'; // New field for special message types
-    isError?: boolean; // To style error messages in the chat
-    cardId?: string; // ID of the card this message refers to
+    type?: 'user_message' | 'ai_message' | 'ai_thinking' | 'ai_proactive_insight' | 'ai_plan_start' | 'ai_confirmation_required';
+    isError?: boolean;
+    cardId?: string;
+    actionToConfirm?: AiAction; // For confirmation messages, this holds the action.
+    isConfirmed?: boolean; // Tracks if the user has responded to the confirmation.
 }
 
 export interface Settings {
@@ -91,7 +93,7 @@ export interface DomAction {
 
 export interface AiAction {
   thought?: string; // The AI's reasoning for this action (ReAct pattern).
-  responseType: 'plan_creation' | 'text_response' | 'dom_action' | 'execute_js_code' | 'proceed_to_analysis';
+  responseType: 'plan_creation' | 'text_response' | 'dom_action' | 'execute_js_code' | 'proceed_to_analysis' | 'confirmation_required';
   plan?: AnalysisPlan;
   text?: string;
   cardId?: string; // For text_response, the ID of the card being discussed
@@ -100,6 +102,7 @@ export interface AiAction {
     explanation: string;
     jsFunctionBody: string;
   };
+  actionToConfirm?: AiAction; // For confirmation_required, this holds the nested action.
 }
 
 export interface AiChatResponse {
