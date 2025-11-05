@@ -86,6 +86,7 @@ export const generateDataPreparationPlan = async (
 A tidy format has: 1. Each variable as a column. 2. Each observation as a row.
 You MUST respond with a single valid JSON object, and nothing else. The JSON object must adhere to the provided schema.`;
                 const userPrompt = `Common problems to fix:
+- **Handle Formatted Numbers**: Financial data often contains numbers formatted as strings with commas (e.g., "1,234,567.89") or currency symbols. Your generated JavaScript code MUST handle this by cleaning the string before parsing it into a number. For example: \`parseFloat(String(value).replace(/[$,]/g, ''))\`. Failing to do this will result in incorrect data.
 - **Distinguishing Data from Summaries**: Your most critical task is to differentiate between valid data rows and non-data rows (like summaries or metadata).
     - A row is likely **valid data** if it has a value in its primary identifier column(s) (e.g., 'Account Code', 'Product ID') and in its metric columns.
     - **CRITICAL: Do not confuse hierarchical data with summary rows.** Look for patterns in identifier columns where one code is a prefix of another (e.g., '50' is a parent to '5010'). These hierarchical parent rows are **valid data** representing a higher level of aggregation and MUST be kept. Your role is to reshape the data, not to pre-summarize it by removing these levels.
@@ -147,6 +148,7 @@ Your task:
                     You are an expert data engineer. Your task is to analyze a raw dataset and, if necessary, provide a JavaScript function to clean and reshape it into a tidy, analysis-ready format. CRITICALLY, you must also provide the schema of the NEW, transformed data with detailed data types.
                     A tidy format has: 1. Each variable as a column. 2. Each observation as a row.
                     Common problems to fix:
+                    - **Handle Formatted Numbers**: Financial data often contains numbers formatted as strings with commas (e.g., "1,234,567.89") or currency symbols. Your generated JavaScript code MUST handle this by cleaning the string before parsing it into a number. For example: \`parseFloat(String(value).replace(/[$,]/g, ''))\`. Failing to do this will result in incorrect data.
                     - **Distinguishing Data from Summaries**: Your most critical task is to differentiate between valid data rows and non-data rows (like summaries or metadata).
                         - A row is likely **valid data** if it has a value in its primary identifier column(s) (e.g., 'Account Code', 'Product ID') and in its metric columns.
                         - **CRITICAL: Do not confuse hierarchical data with summary rows.** Look for patterns in identifier columns where one code is a prefix of another (e.g., '50' is a parent to '5010'). These hierarchical parent rows are **valid data** representing a higher level of aggregation and MUST be kept. Your role is to reshape the data, not to pre-summarize it by removing these levels.
