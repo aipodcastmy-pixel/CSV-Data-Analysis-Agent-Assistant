@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { AnalysisPanel } from './components/AnalysisPanel';
 import { ChatPanel } from './components/ChatPanel';
@@ -398,7 +399,7 @@ const App: React.FC = () => {
     const regenerateAnalyses = useCallback(async (newData: CsvData) => {
         if (!isMounted.current) return;
         addProgress('Data has changed. Regenerating all analysis cards...');
-        setAppState(prev => ({ ...prev, isBusy: true, analysisCards: [], finalSummary: null }));
+        setAppState(prev => ({ ...prev, analysisCards: [], finalSummary: null }));
         
         try {
             const existingPlans = appState.analysisCards.map(card => card.plan);
@@ -419,10 +420,6 @@ const App: React.FC = () => {
              console.error("Error regenerating analyses:", error);
              const errorMessage = error instanceof Error ? error.message : String(error);
              addProgress(`Error updating analyses: ${errorMessage}`, 'error');
-        } finally {
-             if (isMounted.current) {
-                 setAppState(prev => ({ ...prev, isBusy: false }));
-             }
         }
     }, [appState.analysisCards, runAnalysisPipeline, addProgress, settings]);
 
@@ -532,7 +529,7 @@ const App: React.FC = () => {
                 }
                 break;
             case 'confirmation_required':
-                 if (isMounted.current && action.text && action.actionToConfirm) {
+                if (isMounted.current && action.text && action.actionToConfirm) {
                     const confirmationMessage: ChatMessage = {
                         sender: 'ai',
                         text: action.text,
@@ -542,12 +539,56 @@ const App: React.FC = () => {
                         isConfirmed: false,
                     };
                     setAppState(prev => ({ ...prev, chatHistory: [...prev.chatHistory, confirmationMessage] }));
+                } else {
+                    // Defensive coding: Handle cases where the AI fails to provide a valid action to confirm.
+                    console.error("AI requested confirmation but failed to provide a complete 'actionToConfirm' object.", action);
+                    addProgress("AI tried to ask for confirmation but had an internal error.", 'error');
+                    if (isMounted.current) {
+                        const aiMessage: ChatMessage = { 
+                            sender: 'ai', 
+                            text: `I was about to ask for confirmation on an action, but I seem to have made a mistake in formulating my request. Could you please try again?`, 
+                            timestamp: new Date(),
+                            type: 'ai_message',
+                            isError: true,
+                        };
+                        setAppState(prev => ({...prev, chatHistory: [...prev.chatHistory, aiMessage]}));
+                    }
                 }
                 break;
             default:
                 console.warn('Unknown AI action type:', (action as any).responseType);
         }
     }, [appState.csvData, runAnalysisPipeline, regenerateAnalyses, addProgress]);
+
+
+    const handleConfirmAction = useCallback(async (confirmedAction: AiAction, originalMessage: ChatMessage) => {
+        if (!isMounted.current) return;
+        
+        // Mark the original message as confirmed to disable its buttons
+        setAppState(prev => ({
+            ...prev,
+            isBusy: true,
+            chatHistory: prev.chatHistory.map(msg => 
+                msg.timestamp === originalMessage.timestamp 
+                    ? { ...msg, isConfirmed: true, text: `${msg.text}\n\n[User confirmed action.]` } 
+                    : msg
+            )
+        }));
+        
+        try {
+            // Execute the confirmed action directly. No need for a follow-up call to the AI.
+            await executeSingleAction(confirmedAction);
+        } catch (error) {
+            console.error('Error executing confirmed action:', error);
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            addProgress(`Error during confirmed action: ${errorMessage}`, 'error');
+        } finally {
+             if (isMounted.current) {
+                // Once the action is complete, set the app state to not busy.
+                setAppState(prev => ({ ...prev, isBusy: false }));
+            }
+        }
+    }, [executeSingleAction, addProgress]);
 
 
      const handleChatMessage = useCallback(async (message: string) => {
@@ -561,26 +602,41 @@ const App: React.FC = () => {
             setIsSettingsModalOpen(true);
             return;
         }
-        
         if (!vectorStore.getIsInitialized()) {
             await vectorStore.init(addProgress);
         }
-
         if (!isMounted.current) return;
-        const newChatMessage: ChatMessage = { sender: 'user', text: message, timestamp: new Date(), type: 'user_message' };
-        
-        const lastMessage = appState.chatHistory[appState.chatHistory.length - 1];
-        let updatedChatHistory = [...appState.chatHistory, newChatMessage];
 
-        if (lastMessage?.type === 'ai_confirmation_required' && !lastMessage.isConfirmed) {
-            updatedChatHistory = updatedChatHistory.map(msg => 
-                msg.timestamp === lastMessage.timestamp 
-                    ? { ...msg, isConfirmed: true, text: `${msg.text}\n\n[User responded via text.]` } 
-                    : msg
-            );
+        const lastMessage = appState.chatHistory.length > 0 ? appState.chatHistory[appState.chatHistory.length - 1] : null;
+
+        const newChatMessage: ChatMessage = { sender: 'user', text: message, timestamp: new Date(), type: 'user_message' };
+        setAppState(prev => ({ ...prev, chatHistory: [...prev.chatHistory, newChatMessage] }));
+        
+        const isRespondingToConfirmation = lastMessage?.type === 'ai_confirmation_required' && !lastMessage.isConfirmed;
+        const affirmativeResponses = ['yes', 'yep', 'ok', 'okay', 'confirm', 'proceed', 'go ahead', 'do it', 'y'];
+        const isSimpleConfirmation = affirmativeResponses.includes(message.toLowerCase().trim());
+
+        if (isRespondingToConfirmation && isSimpleConfirmation && lastMessage.actionToConfirm) {
+            // User confirmed with simple text. Treat it like a button click. More robust.
+            await handleConfirmAction(lastMessage.actionToConfirm, lastMessage);
+            return;
         }
         
-        setAppState(prev => ({ ...prev, isBusy: true, chatHistory: updatedChatHistory }));
+        setAppState(prev => ({ ...prev, isBusy: true }));
+
+        let historyForAI = [...appState.chatHistory]; // Use the latest state which includes the new user message
+
+        if (isRespondingToConfirmation) {
+            // This is a "no" or a correction. Mark the original message as handled and let the AI figure it out.
+             historyForAI = historyForAI.map(msg =>
+                (msg.timestamp === lastMessage.timestamp)
+                    ? { ...msg, isConfirmed: true, text: `${msg.text}\n\n[User responded via text.]` }
+                    : msg
+            );
+            // Update UI state immediately
+            setAppState(prev => ({ ...prev, chatHistory: historyForAI }));
+        }
+
         await vectorStore.addDocument({id: `chat-${newChatMessage.timestamp.getTime()}-user`, text: `User asks: "${message}"`});
 
         try {
@@ -593,12 +649,12 @@ const App: React.FC = () => {
             const cardContext: CardContext[] = appState.analysisCards.map(c => ({
                 id: c.id,
                 title: c.plan.title,
-                aggregatedDataSample: c.aggregatedData.slice(0, 100),
+                aggregatedDataSample: [],
             }));
 
             const response = await generateChatResponse(
                 appState.columnProfiles,
-                updatedChatHistory,
+                historyForAI,
                 message,
                 cardContext,
                 settings,
@@ -653,30 +709,7 @@ const App: React.FC = () => {
                 setAppState(prev => ({ ...prev, isBusy: false }));
             }
         }
-    }, [appState, addProgress, settings, isApiKeySet, executeSingleAction]);
-
-    const handleConfirmAction = useCallback(async (confirmedAction: AiAction, originalMessage: ChatMessage) => {
-        if (!isMounted.current) return;
-        // Mark the original message as confirmed to disable its buttons
-        setAppState(prev => ({
-            ...prev,
-            isBusy: true,
-            chatHistory: prev.chatHistory.map(msg => 
-                msg.timestamp === originalMessage.timestamp 
-                    ? { ...msg, isConfirmed: true, text: `${msg.text}\n\n[User confirmed action.]` } 
-                    : msg
-            )
-        }));
-        
-        // Execute the confirmed action
-        await executeSingleAction(confirmedAction);
-        
-        // Inform the AI that the action was taken so it can proceed
-        const followUpMessage = "The user confirmed the action. I have executed it and will now proceed with the next step if there is one, or summarize what I've done.";
-        const aiMessage: ChatMessage = { sender: 'ai', text: followUpMessage, timestamp: new Date(), type: 'ai_message' };
-        setAppState(prev => ({...prev, chatHistory: [...prev.chatHistory, aiMessage], isBusy: false}));
-        
-    }, [executeSingleAction]);
+    }, [appState, addProgress, settings, isApiKeySet, executeSingleAction, handleConfirmAction]);
     
     const handleCancelAction = useCallback(async (originalMessage: ChatMessage) => {
          if (!isMounted.current) return;
@@ -690,8 +723,8 @@ const App: React.FC = () => {
             )
         }));
         
-        // Inform the AI that the action was cancelled
-        await handleChatMessage("I have cancelled the action. Please let me know what you would like to do instead.");
+        // Inform the AI that the action was cancelled so it can ask for new instructions.
+        await handleChatMessage("I have cancelled that action. What would you like to do instead?");
 
     }, [handleChatMessage]);
     
@@ -794,6 +827,27 @@ const App: React.FC = () => {
         addProgress('New session started. Please upload a file.');
     };
 
+    const handleDeleteRow = useCallback(async (originalIndex: number) => {
+        if (!appState.csvData) return;
+
+        const rowToDelete = appState.csvData.data[originalIndex];
+        const rowPreview = Object.entries(rowToDelete).slice(0, 3).map(([k, v]) => `${k}: ${v}`).join('\n');
+        
+        if (window.confirm(`Are you sure you want to permanently delete this row?\n\n${rowPreview}\n...`)) {
+            addProgress(`Deleting row ${originalIndex + 1}...`);
+            
+            const newDataArray = appState.csvData.data.filter((_, index) => index !== originalIndex);
+            const newData: CsvData = { ...appState.csvData, data: newDataArray };
+            const newProfiles = profileData(newData.data);
+
+            if (isMounted.current) {
+                setAppState(prev => ({ ...prev, csvData: newData, columnProfiles: newProfiles }));
+                await regenerateAnalyses(newData);
+                addProgress(`Row deleted. All analyses have been updated to reflect this change.`);
+            }
+        }
+    }, [appState.csvData, regenerateAnalyses, addProgress]);
+
 
     const { isBusy, progressMessages, csvData, analysisCards, chatHistory, finalSummary, currentView } = appState;
 
@@ -838,6 +892,7 @@ const App: React.FC = () => {
                         csvData={csvData}
                         isVisible={isSpreadsheetVisible}
                         onToggleVisibility={() => setIsSpreadsheetVisible(prev => !prev)}
+                        onDeleteRow={handleDeleteRow}
                     />
                 </div>
             </div>

@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect } from 'react';
 import { CsvData, SortConfig, CsvRow } from '../types';
 import { SpreadsheetTable } from './SpreadsheetTable';
@@ -6,6 +7,7 @@ interface SpreadsheetPanelProps {
     csvData: CsvData;
     isVisible: boolean;
     onToggleVisibility: () => void;
+    onDeleteRow: (originalIndex: number) => void;
 }
 
 const SearchIcon: React.FC = () => (
@@ -21,7 +23,7 @@ const ChevronIcon: React.FC<{ isOpen: boolean }> = ({ isOpen }) => (
 );
 
 
-export const SpreadsheetPanel: React.FC<SpreadsheetPanelProps> = ({ csvData, isVisible, onToggleVisibility }) => {
+export const SpreadsheetPanel: React.FC<SpreadsheetPanelProps> = ({ csvData, isVisible, onToggleVisibility, onDeleteRow }) => {
     const [sortConfig, setSortConfig] = useState<SortConfig | null>(null);
     const [filterText, setFilterText] = useState('');
     const [isWholeWordSearch, setIsWholeWordSearch] = useState(false);
@@ -72,7 +74,10 @@ export const SpreadsheetPanel: React.FC<SpreadsheetPanelProps> = ({ csvData, isV
     };
 
     const processedData = useMemo(() => {
-        let dataToProcess: CsvRow[] = [...csvData.data];
+        let dataToProcess: (CsvRow & { _originalIndex: number })[] = csvData.data.map((row, index) => ({
+            ...row,
+            _originalIndex: index,
+        }));
 
         // Filtering
         if (filterText) {
@@ -168,6 +173,7 @@ export const SpreadsheetPanel: React.FC<SpreadsheetPanelProps> = ({ csvData, isV
                             onSort={handleSort}
                             columnWidths={columnWidths}
                             onColumnResizeStart={handleColumnResizeStart}
+                            onDeleteRow={onDeleteRow}
                         />
                     </div>
                 </div>

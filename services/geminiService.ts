@@ -1,7 +1,30 @@
+
+
 // This service now handles both Google Gemini and OpenAI models.
 import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
 import { AnalysisPlan, CsvData, ColumnProfile, AnalysisCardData, AiChatResponse, ChatMessage, Settings, DataPreparationPlan, CardContext, CsvRow, AppView, AiAction } from '../types';
 import { executePlan } from "../utils/dataProcessor";
+
+// Helper for timing out API calls
+const withTimeout = <T>(promise: Promise<T>, ms: number): Promise<T> => {
+    return new Promise((resolve, reject) => {
+        const timeoutId = setTimeout(() => {
+            reject(new Error(`Operation timed out after ${ms} ms`));
+        }, ms);
+
+        promise.then(
+            (res) => {
+                clearTimeout(timeoutId);
+                resolve(res);
+            },
+            (err) => {
+                clearTimeout(timeoutId);
+                reject(err);
+            }
+        );
+    });
+};
+
 
 // Helper for retrying API calls
 const withRetry = async <T>(fn: () => Promise<T>, retries = 2): Promise<T> => {
@@ -57,7 +80,7 @@ const dataPreparationSchema = {
         explanation: { type: Type.STRING, description: "A brief, user-facing explanation of the transformations that will be applied to the data (e.g., 'Removed 3 summary rows and reshaped the data from a cross-tab format')." },
         jsFunctionBody: {
             type: Type.STRING,
-            description: "The body of a JavaScript function that takes two arguments `data` (an array of objects) and `_util` (a helper object) and returns the transformed array of objects. This code will be executed to clean and reshape the data. If no transformation is needed, this should be null."
+            description: "The body of a JavaScript function that takes two arguments `data` (an array of objects) and `_util` (a helper object) and returns the transformed array of objects. If no transformation is needed, you MUST omit this field. Do not return null or an empty string."
         },
         outputColumns: {
             type: Type.ARRAY,
@@ -137,7 +160,8 @@ Your task:
                                 { role: 'user', content: userPrompt }
                             ],
                             response_format: { type: 'json_object' }
-                        })
+                        }),
+                        signal: AbortSignal.timeout(60000) // 60-second timeout for data prep
                     });
                     if (!res.ok) {
                         const errorData = await res.json();
@@ -192,14 +216,15 @@ Your task:
                     - outputColumns: [{'name': 'Product', 'type': 'categorical'}, {'name': 'DateStr', 'type': 'date'}, {'name': 'Revenue', 'type': 'currency'}]
                     Your response must be a valid JSON object adhering to the provided schema.
                 `;
-                const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
+                const geminiCall = ai.models.generateContent({
                     model: settings.model as 'gemini-2.5-flash' | 'gemini-2.5-pro',
                     contents: prompt,
                     config: {
                         responseMimeType: 'application/json',
                         responseSchema: dataPreparationSchema,
                     },
-                }));
+                });
+                const response: GenerateContentResponse = await withRetry(() => withTimeout(geminiCall, 60000));
                 jsonStr = response.text.trim();
             }
             
@@ -288,7 +313,8 @@ Rules:
                     model: settings.model,
                     messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
                     response_format: { type: 'json_object' }
-                })
+                }),
+                signal: AbortSignal.timeout(30000)
             });
             if (!res.ok) {
                 const errorData = await res.json();
@@ -333,14 +359,15 @@ Rules:
             - Do not create plans that are too granular (e.g., grouping by a unique ID column if there are thousands of them).
             Your response must be a valid JSON array of plan objects. Do not include any other text or explanations.
         `;
-        const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
+        const geminiCall = ai.models.generateContent({
             model: settings.model as 'gemini-2.5-flash' | 'gemini-2.5-pro',
             contents: prompt,
             config: {
                 responseMimeType: 'application/json',
                 responseSchema: planSchema,
             },
-        }));
+        });
+        const response: GenerateContentResponse = await withRetry(() => withTimeout(geminiCall, 30000));
         jsonStr = response.text.trim();
     }
 
@@ -376,7 +403,8 @@ ${JSON.stringify(plansWithData, null, 2)}`;
                     model: settings.model,
                     messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
                     response_format: { type: 'json_object' }
-                })
+                }),
+                signal: AbortSignal.timeout(30000)
             });
             if (!res.ok) {
                 const errorData = await res.json();
@@ -405,14 +433,15 @@ ${JSON.stringify(plansWithData, null, 2)}`;
             ${JSON.stringify(plansWithData, null, 2)}
             Your response must be a valid JSON array of the refined and configured plan objects, adhering to the provided schema. Do not include any other text or explanations.
         `;
-        const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
+        const geminiCall = ai.models.generateContent({
             model: settings.model as 'gemini-2.5-flash' | 'gemini-2.5-pro',
             contents: prompt,
             config: {
                 responseMimeType: 'application/json',
                 responseSchema: planSchema,
             },
-        }));
+        });
+        const response: GenerateContentResponse = await withRetry(() => withTimeout(geminiCall, 30000));
         jsonStr = response.text.trim();
     }
     
@@ -496,7 +525,8 @@ ${languageInstruction}`;
                     body: JSON.stringify({
                         model: settings.model,
                         messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
-                    })
+                    }),
+                    signal: AbortSignal.timeout(30000)
                 });
                 if (!res.ok) {
                     const errorData = await res.json();
@@ -522,10 +552,11 @@ ${languageInstruction}`;
                 For example, instead of "Region A has 500 sales", say "Region A is the top performer, contributing the majority of sales, which suggests a strong market presence there."
                 Your response must be only the summary text in the specified format.
             `;
-            const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
+            const geminiCall = ai.models.generateContent({
                 model: settings.model as 'gemini-2.5-flash' | 'gemini-2.5-pro',
                 contents: prompt,
-            }));
+            });
+            const response: GenerateContentResponse = await withRetry(() => withTimeout(geminiCall, 30000));
             return response.text;
         }
     } catch (error) {
@@ -559,7 +590,8 @@ Produce a single, concise paragraph in ${settings.language}. This is your initia
                     body: JSON.stringify({
                         model: settings.model,
                         messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
-                    })
+                    }),
+                    signal: AbortSignal.timeout(30000)
                 });
                 if (!res.ok) {
                     const errorData = await res.json();
@@ -584,10 +616,11 @@ Produce a single, concise paragraph in ${settings.language}. This is your initia
                 - **Generated Analysis Cards**: ${JSON.stringify(cardContext, null, 2)}
                 Produce a single, concise paragraph in ${settings.language}. This is your initial assessment that you will share with your human counterpart.
             `;
-            const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
+            const geminiCall = ai.models.generateContent({
                 model: settings.model as 'gemini-2.5-flash' | 'gemini-2.5-pro',
                 contents: prompt,
-            }));
+            });
+            const response: GenerateContentResponse = await withRetry(() => withTimeout(geminiCall, 30000));
             return response.text;
         }
     } catch (error) {
@@ -631,7 +664,8 @@ Your Task:
                         model: settings.model,
                         messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
                         response_format: { type: 'json_object' }
-                    })
+                    }),
+                    signal: AbortSignal.timeout(30000)
                 });
                 if (!res.ok) {
                     const errorData = await res.json();
@@ -657,14 +691,15 @@ Your Task:
                 
                 Your response must be a valid JSON object adhering to the provided schema.
             `;
-            const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
+            const geminiCall = ai.models.generateContent({
                 model: settings.model as 'gemini-2.5-flash' | 'gemini-2.5-pro',
                 contents: prompt,
                 config: {
                     responseMimeType: 'application/json',
                     responseSchema: proactiveInsightSchema,
                 },
-            }));
+            });
+            const response: GenerateContentResponse = await withRetry(() => withTimeout(geminiCall, 30000));
             jsonStr = response.text.trim();
         }
         return JSON.parse(jsonStr);
@@ -702,7 +737,8 @@ ${summaries}`;
                     body: JSON.stringify({
                         model: settings.model,
                         messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
-                    })
+                    }),
+                    signal: AbortSignal.timeout(30000)
                 });
                 if (!res.ok) {
                     const errorData = await res.json();
@@ -724,10 +760,11 @@ ${summaries}`;
                 Do not just repeat the individual summaries. Create a new, synthesized narrative.
                 Your response should be a single paragraph of insightful business analysis.
             `;
-            const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
+            const geminiCall = ai.models.generateContent({
                 model: settings.model as 'gemini-2.5-flash' | 'gemini-2.5-pro',
                 contents: prompt,
-            }));
+            });
+            const response: GenerateContentResponse = await withRetry(() => withTimeout(geminiCall, 30000));
             return response.text;
         }
     } catch (error) {
@@ -815,13 +852,13 @@ const aiActionSchema = {
                         toolName: { type: Type.STRING, enum: ['highlightCard', 'changeCardChartType', 'showCardData', 'filterCard'] },
                         args: {
                             type: Type.OBJECT,
-                            description: 'Arguments for the tool.',
+                            description: 'Arguments for the tool. e.g., { "cardId": "card-123" }',
                             properties: {
                                 cardId: { type: Type.STRING, description: 'The ID of the target analysis card.' },
-                                newType: { type: Type.STRING, enum: ['bar', 'line', 'pie', 'doughnut', 'scatter'] },
-                                visible: { type: Type.BOOLEAN },
-                                column: { type: Type.STRING },
-                                values: { type: Type.ARRAY, items: { type: Type.STRING } },
+                                newType: { type: Type.STRING, enum: ['bar', 'line', 'pie', 'doughnut', 'scatter'], description: "For 'changeCardChartType'." },
+                                visible: { type: Type.BOOLEAN, description: "For 'showCardData'." },
+                                column: { type: Type.STRING, description: "For 'filterCard', the column to filter on." },
+                                values: { type: Type.ARRAY, items: { type: Type.STRING }, description: "For 'filterCard', the values to include." },
                             },
                             required: ['cardId'],
                         },
@@ -901,7 +938,7 @@ ${longTermMemory.length > 0 ? longTermMemory.join('\n---\n') : "No specific long
 - **Dataset Columns**:
     - Categorical: ${categoricalCols.join(', ')}
     - Numerical: ${numericalCols.join(', ')}
-- **Analysis Cards on Screen (Sample of up to 100 rows each)**:
+- **Analysis Cards on Screen (IDs and Titles)**:
     ${cardContext.length > 0 ? JSON.stringify(cardContext, null, 2) : "No cards yet."}
 - **Raw Data Sample (first 20 rows):**
     ${rawDataSample.length > 0 ? JSON.stringify(rawDataSample, null, 2) : "No raw data available."}
@@ -942,7 +979,8 @@ ${recentHistory}
                         model: settings.model,
                         messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPromptWithContext }],
                         response_format: { type: 'json_object' }
-                    })
+                    }),
+                    signal: AbortSignal.timeout(60000) // 60-second timeout for chat
                 });
                 if (!res.ok) {
                     const errorData = await res.json();
@@ -973,7 +1011,7 @@ ${recentHistory}
                 - **Dataset Columns**:
                     - Categorical: ${categoricalCols.join(', ')}
                     - Numerical: ${numericalCols.join(', ')}
-                - **Analysis Cards on Screen (Sample of up to 100 rows each)**:
+                - **Analysis Cards on Screen (IDs and Titles)**:
                     ${cardContext.length > 0 ? JSON.stringify(cardContext, null, 2) : "No cards yet."}
                 - **Raw Data Sample (first 20 rows):**
                     ${rawDataSample.length > 0 ? JSON.stringify(rawDataSample, null, 2) : "No raw data available."}
@@ -1012,14 +1050,15 @@ ${recentHistory}
                 - Always be conversational. Use 'text_response' actions to acknowledge the user and explain what you are doing, especially after a complex series of actions.
                 Your output MUST be a single JSON object with an "actions" key containing an array of action objects.
             `;
-            const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
+            const geminiCall = ai.models.generateContent({
                 model: settings.model as 'gemini-2.5-flash' | 'gemini-2.5-pro',
                 contents: prompt,
                 config: {
                     responseMimeType: 'application/json',
                     responseSchema: multiActionChatResponseSchema,
                 },
-            }));
+            });
+            const response: GenerateContentResponse = await withRetry(() => withTimeout(geminiCall, 60000));
             jsonStr = response.text.trim();
         }
 
