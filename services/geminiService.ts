@@ -757,7 +757,7 @@ const aiActionSchema = {
     type: Type.OBJECT,
     properties: {
         thought: { type: Type.STRING, description: "The AI's reasoning or thought process before performing the action. This explains *why* this action is being taken. This is a mandatory part of the ReAct pattern." },
-        responseType: { type: Type.STRING, enum: ['text_response', 'plan_creation', 'dom_action', 'execute_js_code', 'proceed_to_analysis', 'confirmation_required'] },
+        responseType: { type: Type.STRING, enum: ['text_response', 'plan_creation', 'dom_action', 'execute_js_code', 'confirmation_required'] },
         text: { type: Type.STRING, description: "A conversational text response to the user. Required for 'text_response' and 'confirmation_required'." },
         cardId: { type: Type.STRING, description: "Optional. The ID of the card this text response refers to. Used to link text to a specific chart." },
         plan: {
@@ -794,9 +794,51 @@ const aiActionSchema = {
             required: ['explanation', 'jsFunctionBody']
         },
         actionToConfirm: {
-            // A recursive-like definition for the nested action
             type: Type.OBJECT,
             description: "The action that requires confirmation. Required for 'confirmation_required'.",
+            // FIX: Gemini requires OBJECT types to have a non-empty 'properties' field.
+            // We define the properties of the nested action here. It's an AiAction, but without another 'actionToConfirm'.
+            properties: {
+                thought: { type: Type.STRING, description: "The AI's reasoning for the action to be confirmed." },
+                // The nested action cannot itself be a confirmation request.
+                responseType: { type: Type.STRING, enum: ['text_response', 'plan_creation', 'dom_action', 'execute_js_code'] },
+                text: { type: Type.STRING, description: "A conversational text response for the action to confirm." },
+                cardId: { type: Type.STRING, description: "Optional. The ID of the card this action refers to." },
+                plan: {
+                    ...singlePlanSchema,
+                    description: "Analysis plan for the confirmed action."
+                },
+                domAction: {
+                    type: Type.OBJECT,
+                    description: "A DOM action for the confirmed action.",
+                    properties: {
+                        toolName: { type: Type.STRING, enum: ['highlightCard', 'changeCardChartType', 'showCardData', 'filterCard'] },
+                        args: {
+                            type: Type.OBJECT,
+                            description: 'Arguments for the tool.',
+                            properties: {
+                                cardId: { type: Type.STRING, description: 'The ID of the target analysis card.' },
+                                newType: { type: Type.STRING, enum: ['bar', 'line', 'pie', 'doughnut', 'scatter'] },
+                                visible: { type: Type.BOOLEAN },
+                                column: { type: Type.STRING },
+                                values: { type: Type.ARRAY, items: { type: Type.STRING } },
+                            },
+                            required: ['cardId'],
+                        },
+                    },
+                    required: ['toolName', 'args']
+                },
+                code: {
+                    type: Type.OBJECT,
+                    description: "Code to execute for the confirmed action.",
+                    properties: {
+                        explanation: { type: Type.STRING, description: "Explanation for the code." },
+                        jsFunctionBody: { type: Type.STRING, description: "The JS function body." },
+                    },
+                    required: ['explanation', 'jsFunctionBody']
+                },
+            },
+            required: ['responseType', 'thought']
         }
     },
     required: ['responseType', 'thought']
@@ -872,7 +914,6 @@ ${recentHistory}
 3.  **dom_action**: To INTERACT with an EXISTING card ('highlightCard', 'changeCardChartType', 'showCardData', 'filterCard').
 4.  **execute_js_code**: For COMPLEX TASKS like creating new columns or complex filtering.
 5.  **confirmation_required**: To ask for user approval before performing a DESTRUCTIVE action.
-6.  **proceed_to_analysis**: DEPRECATED.
 **Decision-Making Process (ReAct Framework):**
 - **THINK (Reason)**: First, you MUST reason about the user's request. What is their goal? Can it be answered from memory, or does it require data analysis? What is the first logical step? Formulate this reasoning and place it in the 'thought' field of your action. This field is MANDATORY for every action.
 - **ACT**: Based on your thought, choose the most appropriate action from your toolset and define its parameters in the same action object.
@@ -949,7 +990,6 @@ ${recentHistory}
                 3.  **dom_action**: To INTERACT with an EXISTING card ('highlightCard', 'changeCardChartType', 'showCardData', 'filterCard').
                 4.  **execute_js_code**: For COMPLEX TASKS like creating new columns or complex filtering.
                 5.  **confirmation_required**: To ask for user approval before performing a DESTRUCTIVE action.
-                6.  **proceed_to_analysis**: DEPRECATED.
 
                 **Decision-Making Process (ReAct Framework):**
                 - **THINK (Reason)**: First, you MUST reason about the user's request. What is their goal? Can it be answered from memory, or does it require data analysis? What is the first logical step? Formulate this reasoning and place it in the 'thought' field of your action. This field is MANDATORY for every action.
