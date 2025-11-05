@@ -80,6 +80,7 @@ export interface AppState {
     finalSummary: string | null;
     aiCoreAnalysisSummary: string | null; // AI's internal monologue/memory about the dataset
     dataPreparationPlan: DataPreparationPlan | null; // The plan used to clean the data
+    vectorStoreDocuments: VectorStoreDocument[]; // For persisting AI memory
 }
 
 export interface DomAction {

@@ -86,7 +86,10 @@ export const generateDataPreparationPlan = async (
 A tidy format has: 1. Each variable as a column. 2. Each observation as a row.
 You MUST respond with a single valid JSON object, and nothing else. The JSON object must adhere to the provided schema.`;
                 const userPrompt = `Common problems to fix:
-- **Summary Rows**: Filter out rows with 'Total', 'Subtotal'.
+- **Distinguishing Data from Summaries**: Your most critical task is to differentiate between valid data rows and non-data rows (like summaries or metadata).
+    - A row is likely **valid data** if it has a value in its primary identifier column(s) (e.g., 'Account Code', 'Product ID') and in its metric columns.
+    - **CRITICAL: Do not confuse hierarchical data with summary rows.** Look for patterns in identifier columns where one code is a prefix of another (e.g., '50' is a parent to '5010'). These hierarchical parent rows are **valid data** representing a higher level of aggregation and MUST be kept. Your role is to reshape the data, not to pre-summarize it by removing these levels.
+    - A row is likely **non-data** and should be removed if it's explicitly a summary (e.g., contains 'Total', 'Subtotal' in a descriptive column) OR if it's metadata (e.g., the primary identifier column is empty but other columns contain text, like a section header).
 - **Crosstab/Wide Format**: Unpivot data where column headers are values (e.g., years, regions).
 - **Multi-header Rows**: Skip initial junk rows.
 Dataset Columns (Initial Schema):
@@ -144,7 +147,10 @@ Your task:
                     You are an expert data engineer. Your task is to analyze a raw dataset and, if necessary, provide a JavaScript function to clean and reshape it into a tidy, analysis-ready format. CRITICALLY, you must also provide the schema of the NEW, transformed data with detailed data types.
                     A tidy format has: 1. Each variable as a column. 2. Each observation as a row.
                     Common problems to fix:
-                    - **Summary Rows**: Filter out rows with 'Total', 'Subtotal'.
+                    - **Distinguishing Data from Summaries**: Your most critical task is to differentiate between valid data rows and non-data rows (like summaries or metadata).
+                        - A row is likely **valid data** if it has a value in its primary identifier column(s) (e.g., 'Account Code', 'Product ID') and in its metric columns.
+                        - **CRITICAL: Do not confuse hierarchical data with summary rows.** Look for patterns in identifier columns where one code is a prefix of another (e.g., '50' is a parent to '5010'). These hierarchical parent rows are **valid data** representing a higher level of aggregation and MUST be kept. Your role is to reshape the data, not to pre-summarize it by removing these levels.
+                        - A row is likely **non-data** and should be removed if it's explicitly a summary (e.g., contains 'Total', 'Subtotal' in a descriptive column) OR if it's metadata (e.g., the primary identifier column is empty but other columns contain text, like a section header).
                     - **Crosstab/Wide Format**: Unpivot data where column headers are values (e.g., years, regions).
                     - **Multi-header Rows**: Skip initial junk rows.
                     Dataset Columns (Initial Schema):

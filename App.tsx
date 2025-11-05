@@ -44,6 +44,7 @@ const initialState: AppState = {
     finalSummary: null,
     aiCoreAnalysisSummary: null,
     dataPreparationPlan: null,
+    vectorStoreDocuments: [],
 };
 
 
@@ -94,12 +95,16 @@ const App: React.FC = () => {
                         ...currentSession.appState,
                         currentView: currentSession.appState.csvData ? 'analysis_dashboard' : 'file_upload',
                     });
+                     if (currentSession.appState.vectorStoreDocuments && vectorStore.getIsInitialized()) {
+                        vectorStore.rehydrate(currentSession.appState.vectorStoreDocuments);
+                        addProgress('Restored AI long-term memory from last session.');
+                    }
                 }
                 await loadReportsList();
             }
         };
         loadInitialData();
-    }, [loadReportsList]);
+    }, [loadReportsList, addProgress]);
 
     // Debounced saving of the current session state
     useEffect(() => {
@@ -108,12 +113,13 @@ const App: React.FC = () => {
         const saveCurrentState = async () => {
             if (appState.csvData && appState.csvData.data.length > 0) {
                  const existingReport = await getReport(CURRENT_SESSION_KEY);
+                 const stateToSave: AppState = { ...appState, vectorStoreDocuments: vectorStore.getDocuments() };
                  const currentReport: Report = {
                     id: CURRENT_SESSION_KEY,
                     filename: appState.csvData.fileName || 'Current Session',
                     createdAt: existingReport?.createdAt || new Date(),
                     updatedAt: new Date(),
-                    appState: appState,
+                    appState: stateToSave,
                 };
                 await saveReport(currentReport);
                 if (isHistoryPanelOpen) {
@@ -689,10 +695,17 @@ const App: React.FC = () => {
         addProgress(`Loading report ${id}...`);
         const report = await getReport(id);
         if (report && isMounted.current) {
+            // Must clear old vector store before loading new state
+            vectorStore.clear();
             setAppState({
                 ...report.appState,
                 currentView: 'analysis_dashboard'
             });
+            // Rehydrate vector store with documents from the loaded report
+            if (report.appState.vectorStoreDocuments) {
+                vectorStore.rehydrate(report.appState.vectorStoreDocuments);
+                addProgress('AI long-term memory restored from report.');
+            }
             setIsHistoryPanelOpen(false);
             addProgress(`Report "${report.filename}" loaded successfully.`);
         } else {
