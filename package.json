@@ -13,7 +13,8 @@
     "react-dom": "^19.2.0",
     "@google/genai": "^1.28.0",
     "idb": "^8.0.3",
-    "zustand": "^4.5.4"
+    "zustand": "^4.5.4",
+    "openai": "^4.52.7"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

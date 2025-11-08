@@ -1,5 +1,6 @@
 // This service now handles both Google Gemini and OpenAI models.
 import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
+import OpenAI from 'openai';
 import { AnalysisPlan, CsvData, ColumnProfile, AnalysisCardData, AiChatResponse, ChatMessage, Settings, DataPreparationPlan, CardContext, CsvRow, AppView } from '../types';
 import { executePlan } from "../utils/dataProcessor";
 import {
@@ -96,28 +97,20 @@ export const generateDataPreparationPlan = async (
                 if (!settings.openAIApiKey) return { explanation: "No transformation needed as API key is not set.", jsFunctionBody: null, outputColumns: columns };
                 const systemPrompt = "You are an expert data engineer. Your task is to analyze a raw dataset and, if necessary, provide a JavaScript function to clean and reshape it into a tidy, analysis-ready format. CRITICALLY, you must also provide the schema of the NEW, transformed data with detailed data types.\nYou MUST respond with a single valid JSON object, and nothing else. The JSON object must adhere to the provided schema.";
                 
-                const response = await withRetry(async () => {
-                    const res = await fetch('https://api.openai.com/v1/chat/completions', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${settings.openAIApiKey}`
-                        },
-                        body: JSON.stringify({
-                            model: settings.model,
-                            messages: [
-                                { role: 'system', content: systemPrompt },
-                                { role: 'user', content: promptContent }
-                            ],
-                            response_format: { type: 'json_object' }
-                        })
-                    });
-                    if (!res.ok) {
-                        const errorData = await res.json();
-                        throw new Error(errorData.error?.message || `OpenAI API error: ${res.statusText}`);
-                    }
-                    return res.json();
-                });
+                const openai = new OpenAI({ apiKey: settings.openAIApiKey, dangerouslyAllowBrowser: true });
+                // FIX: Explicitly type the response from the OpenAI API call.
+                const response: OpenAI.Chat.ChatCompletion = await withRetry(() => openai.chat.completions.create({
+                    model: settings.model,
+                    messages: [
+                        { role: 'system', content: systemPrompt },
+                        { role: 'user', content: promptContent }
+                    ],
+                    response_format: { type: 'json_object' }
+                }));
+
+                if (!response.choices[0].message.content) {
+                    throw new Error("OpenAI returned an empty response.");
+                }
                 jsonStr = response.choices[0].message.content;
 
             } else { // Google Gemini
@@ -189,24 +182,21 @@ const generateCandidatePlans = async (
         const systemPrompt = `You are a senior business intelligence analyst specializing in ERP and financial data. Your task is to generate a diverse list of insightful analysis plan candidates for a given dataset by identifying common data patterns.
 You MUST respond with a single valid JSON array of plan objects, and nothing else. The JSON object must adhere to the provided schema.`;
 
-        const response = await withRetry(async () => {
-            const res = await fetch('https://api.openai.com/v1/chat/completions', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${settings.openAIApiKey}` },
-                body: JSON.stringify({
-                    model: settings.model,
-                    messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: promptContent }],
-                    response_format: { type: 'json_object' }
-                })
-            });
-            if (!res.ok) {
-                const errorData = await res.json();
-                throw new Error(errorData.error?.message || `OpenAI API error: ${res.statusText}`);
-            }
-            return res.json();
-        });
+        const openai = new OpenAI({ apiKey: settings.openAIApiKey, dangerouslyAllowBrowser: true });
+        // FIX: Explicitly type the response from the OpenAI API call.
+        const response: OpenAI.Chat.ChatCompletion = await withRetry(() => openai.chat.completions.create({
+            model: settings.model,
+            messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: promptContent }],
+            response_format: { type: 'json_object' }
+        }));
+        
+        const content = response.choices[0].message.content;
+        if (!content) {
+            throw new Error("OpenAI returned an empty response.");
+        }
+
         // OpenAI may wrap the array in an object, e.g. {"plans": [...]}. We need to find the array.
-        const resultObject = JSON.parse(response.choices[0].message.content);
+        const resultObject = JSON.parse(content);
         const arrayCandidate = Object.values(resultObject).find(v => Array.isArray(v));
         if (!arrayCandidate) throw new Error("OpenAI response did not contain a JSON array of plans.");
         jsonStr = JSON.stringify(arrayCandidate);
@@ -241,23 +231,20 @@ const refineAndConfigurePlans = async (
         const systemPrompt = `You are a Quality Review Data Analyst. Your job is to review a list of proposed analysis plans and their data samples. Your goal is to select ONLY the most insightful and readable charts for the end-user, and configure them for the best default view. Your final output must be an array of ONLY the good, configured plan objects. Do not include the discarded plans.
 You MUST respond with a single valid JSON array of plan objects, and nothing else. The JSON object must adhere to the provided schema.`;
         
-        const response = await withRetry(async () => {
-            const res = await fetch('https://api.openai.com/v1/chat/completions', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${settings.openAIApiKey}` },
-                body: JSON.stringify({
-                    model: settings.model,
-                    messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: promptContent }],
-                    response_format: { type: 'json_object' }
-                })
-            });
-            if (!res.ok) {
-                const errorData = await res.json();
-                throw new Error(errorData.error?.message || `OpenAI API error: ${res.statusText}`);
-            }
-            return res.json();
-        });
-        const resultObject = JSON.parse(response.choices[0].message.content);
+        const openai = new OpenAI({ apiKey: settings.openAIApiKey, dangerouslyAllowBrowser: true });
+        // FIX: Explicitly type the response from the OpenAI API call.
+        const response: OpenAI.Chat.ChatCompletion = await withRetry(() => openai.chat.completions.create({
+            model: settings.model,
+            messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: promptContent }],
+            response_format: { type: 'json_object' }
+        }));
+        
+        const content = response.choices[0].message.content;
+        if (!content) {
+            throw new Error("OpenAI returned an empty response.");
+        }
+        
+        const resultObject = JSON.parse(content);
         const arrayCandidate = Object.values(resultObject).find(v => Array.isArray(v));
         if (!arrayCandidate) throw new Error("OpenAI response did not contain a JSON array of plans.");
         jsonStr = JSON.stringify(arrayCandidate);
@@ -342,22 +329,13 @@ export const generateSummary = async (title: string, data: CsvData['data'], sett
         if (settings.provider === 'openai') {
             const systemPrompt = `You are a business intelligence analyst. Your response must be only the summary text in the specified format. The summary should highlight key trends, outliers, or business implications. Do not just describe the data; interpret its meaning. For example, instead of "Region A has 500 sales", say "Region A is the top performer, contributing the majority of sales, which suggests a strong market presence there."`;
 
-            const response = await withRetry(async () => {
-                const res = await fetch('https://api.openai.com/v1/chat/completions', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${settings.openAIApiKey}` },
-                    body: JSON.stringify({
-                        model: settings.model,
-                        messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: promptContent }],
-                    })
-                });
-                if (!res.ok) {
-                    const errorData = await res.json();
-                    throw new Error(errorData.error?.message || `OpenAI API error: ${res.statusText}`);
-                }
-                return res.json();
-            });
-            return response.choices[0].message.content;
+            const openai = new OpenAI({ apiKey: settings.openAIApiKey, dangerouslyAllowBrowser: true });
+            // FIX: Explicitly type the response from the OpenAI API call.
+            const response: OpenAI.Chat.ChatCompletion = await withRetry(() => openai.chat.completions.create({
+                model: settings.model,
+                messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: promptContent }],
+            }));
+            return response.choices[0].message.content || 'No summary generated.';
 
         } else { // Google Gemini
             const ai = new GoogleGenAI({ apiKey: settings.geminiApiKey });
@@ -391,22 +369,13 @@ Your briefing should cover:
 4.  **Suggested Focus**: Based on the initial charts, what should be the focus of further analysis? (e.g., "Future analysis should focus on identifying the most profitable regions and product categories.")
 Produce a single, concise paragraph in ${settings.language}. This is your initial assessment that you will share with your human counterpart.`;
             
-            const response = await withRetry(async () => {
-                const res = await fetch('https://api.openai.com/v1/chat/completions', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${settings.openAIApiKey}` },
-                    body: JSON.stringify({
-                        model: settings.model,
-                        messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: promptContent }],
-                    })
-                });
-                if (!res.ok) {
-                    const errorData = await res.json();
-                    throw new Error(errorData.error?.message || `OpenAI API error: ${res.statusText}`);
-                }
-                return res.json();
-            });
-            return response.choices[0].message.content;
+            const openai = new OpenAI({ apiKey: settings.openAIApiKey, dangerouslyAllowBrowser: true });
+            // FIX: Explicitly type the response from the OpenAI API call.
+            const response: OpenAI.Chat.ChatCompletion = await withRetry(() => openai.chat.completions.create({
+                model: settings.model,
+                messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: promptContent }],
+            }));
+            return response.choices[0].message.content || 'No summary generated.';
 
         } else { // Google Gemini
             const ai = new GoogleGenAI({ apiKey: settings.geminiApiKey });
@@ -442,23 +411,19 @@ export const generateProactiveInsights = async (cardContext: CardContext[], sett
         if (settings.provider === 'openai') {
              const systemPrompt = `You are a proactive data analyst. Review the following summaries of data visualizations. Your task is to identify the single most commercially significant or surprising insight. This could be a major trend, a key outlier, or a dominant category that has clear business implications. Your response must be a single JSON object with 'insight' and 'cardId' keys.`;
             
-            const response = await withRetry(async () => {
-                const res = await fetch('https://api.openai.com/v1/chat/completions', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${settings.openAIApiKey}` },
-                    body: JSON.stringify({
-                        model: settings.model,
-                        messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: promptContent }],
-                        response_format: { type: 'json_object' }
-                    })
-                });
-                if (!res.ok) {
-                    const errorData = await res.json();
-                    throw new Error(errorData.error?.message || `OpenAI API error: ${res.statusText}`);
-                }
-                return res.json();
-            });
-            jsonStr = response.choices[0].message.content;
+            const openai = new OpenAI({ apiKey: settings.openAIApiKey, dangerouslyAllowBrowser: true });
+            // FIX: Explicitly type the response from the OpenAI API call.
+            const response: OpenAI.Chat.ChatCompletion = await withRetry(() => openai.chat.completions.create({
+                model: settings.model,
+                messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: promptContent }],
+                response_format: { type: 'json_object' }
+            }));
+            
+            const content = response.choices[0].message.content;
+            if (!content) {
+                throw new Error("OpenAI returned an empty response.");
+            }
+            jsonStr = content;
         
         } else { // Google Gemini
             const ai = new GoogleGenAI({ apiKey: settings.geminiApiKey });
@@ -501,22 +466,14 @@ Please provide a concise, overarching summary that connects the dots between the
 Identify the most critical business insights, potential opportunities, or risks revealed by the data as a whole.
 Do not just repeat the individual summaries. Create a new, synthesized narrative.
 Your response should be a single paragraph of insightful business analysis.`;
-            const response = await withRetry(async () => {
-                const res = await fetch('https://api.openai.com/v1/chat/completions', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${settings.openAIApiKey}` },
-                    body: JSON.stringify({
-                        model: settings.model,
-                        messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: promptContent }],
-                    })
-                });
-                if (!res.ok) {
-                    const errorData = await res.json();
-                    throw new Error(errorData.error?.message || `OpenAI API error: ${res.statusText}`);
-                }
-                return res.json();
-            });
-            return response.choices[0].message.content;
+            
+            const openai = new OpenAI({ apiKey: settings.openAIApiKey, dangerouslyAllowBrowser: true });
+            // FIX: Explicitly type the response from the OpenAI API call.
+            const response: OpenAI.Chat.ChatCompletion = await withRetry(() => openai.chat.completions.create({
+                model: settings.model,
+                messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: promptContent }],
+            }));
+            return response.choices[0].message.content || 'No final summary generated.';
 
         } else { // Google Gemini
             const ai = new GoogleGenAI({ apiKey: settings.geminiApiKey });
@@ -633,23 +590,19 @@ export const generateChatResponse = async (
             const systemPrompt = `You are an expert data analyst and business strategist, required to operate using a Reason-Act (ReAct) framework. For every action you take, you must first explain your reasoning in the 'thought' field, and then define the action itself. Your goal is to respond to the user by providing insightful analysis and breaking down your response into a sequence of these thought-action pairs. Your final conversational responses should be in ${settings.language}.
 Your output MUST be a single JSON object with an "actions" key containing an array of action objects.`;
             
-            const response = await withRetry(async () => {
-                const res = await fetch('https://api.openai.com/v1/chat/completions', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${settings.openAIApiKey}` },
-                    body: JSON.stringify({
-                        model: settings.model,
-                        messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: promptContent }],
-                        response_format: { type: 'json_object' }
-                    })
-                });
-                if (!res.ok) {
-                    const errorData = await res.json();
-                    throw new Error(errorData.error?.message || `OpenAI API error: ${res.statusText}`);
-                }
-                return res.json();
-            });
-            jsonStr = response.choices[0].message.content;
+            const openai = new OpenAI({ apiKey: settings.openAIApiKey, dangerouslyAllowBrowser: true });
+            // FIX: Explicitly type the response from the OpenAI API call.
+            const response: OpenAI.Chat.ChatCompletion = await withRetry(() => openai.chat.completions.create({
+                model: settings.model,
+                messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: promptContent }],
+                response_format: { type: 'json_object' }
+            }));
+
+            const content = response.choices[0].message.content;
+            if (!content) {
+                throw new Error("OpenAI returned an empty response.");
+            }
+            jsonStr = content;
 
         } else { // Google Gemini
             const ai = new GoogleGenAI({ apiKey: settings.geminiApiKey });
