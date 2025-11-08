@@ -28,8 +28,25 @@ const SettingsIcon: React.FC = () => (
 );
 
 const MemoryIcon: React.FC = () => (
-    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M21.5 12.5C21.5 16.5 18 20 12 20C10.5 20 9 19.5 7.5 19"/>
+        <path d="M4 17.5C2.5 16 2 14 2 12C2 7 6 3 12 3C16.5 3 20.5 5.5 21.5 9.5"/>
+        <path d="M16 10.5c0 .8-.7 1.5-1.5 1.5s-1.5-.7-1.5-1.5.7-1.5 1.5-1.5 1.5.7 1.5 1.5z"/>
+        <path d="M8.5 8.5c.8 0 1.5.7 1.5 1.5s-.7 1.5-1.5 1.5-1.5-.7-1.5-1.5.7-1.5 1.5-1.5z"/>
+        <path d="M12.5 15.5c-1.5 0-2.5-1-2.5-2.5"/>
+    </svg>
+);
+
+const SendIcon: React.FC = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+        <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" />
+    </svg>
+);
+
+const LoadingIcon: React.FC = () => (
+     <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
     </svg>
 );
 
@@ -37,6 +54,7 @@ const MemoryIcon: React.FC = () => (
 export const ChatPanel: React.FC<ChatPanelProps> = ({ progressMessages, chatHistory, isBusy, onSendMessage, isApiKeySet, onToggleVisibility, onOpenSettings, onOpenMemory, onShowCard, currentView }) => {
     const [input, setInput] = useState('');
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    const textareaRef = useRef<HTMLTextAreaElement>(null);
 
     const timeline = [...progressMessages, ...chatHistory]
         .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
@@ -47,11 +65,27 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ progressMessages, chatHist
 
     useEffect(scrollToBottom, [timeline]);
 
-    const handleSend = (e: React.FormEvent) => {
+    // Auto-resize textarea based on content
+    useEffect(() => {
+        const textarea = textareaRef.current;
+        if (textarea) {
+            textarea.style.height = 'auto'; // Reset height
+            const scrollHeight = textarea.scrollHeight;
+            textarea.style.height = `${scrollHeight}px`;
+        }
+    }, [input]);
+
+    const handleSend = (e: React.FormEvent | React.KeyboardEvent) => {
         e.preventDefault();
         if (input.trim() && !isBusy) {
             onSendMessage(input.trim());
             setInput('');
+        }
+    };
+    
+    const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            handleSend(e);
         }
     };
 
@@ -197,18 +231,28 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ progressMessages, chatHist
                 <div ref={messagesEndRef} />
             </div>
             <div className="p-4 border-t border-slate-200 bg-white">
-                <form onSubmit={handleSend}>
-                    <input
-                        type="text"
+                <form onSubmit={handleSend} className="flex items-start space-x-2">
+                    <textarea
+                        ref={textareaRef}
+                        rows={1}
                         value={input}
                         onChange={(e) => setInput(e.target.value)}
+                        onKeyDown={handleKeyDown}
                         placeholder={getPlaceholder()}
                         disabled={isBusy || !isApiKeySet || currentView === 'file_upload'}
-                        className="w-full bg-white border border-slate-300 rounded-md py-2 px-4 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+                        className="flex-grow bg-white border border-slate-300 rounded-md py-2 px-3 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 resize-none max-h-32"
+                        style={{ overflowY: 'auto' }}
                     />
+                     <button
+                        type="submit"
+                        disabled={isBusy || !input.trim() || !isApiKeySet || currentView === 'file_upload'}
+                        className="flex-shrink-0 w-10 h-10 flex items-center justify-center bg-blue-600 text-white font-semibold rounded-md hover:bg-blue-700 transition-colors disabled:bg-blue-300 disabled:cursor-not-allowed"
+                        aria-label={isBusy ? "Sending message" : "Send message"}
+                    >
+                        {isBusy ? <LoadingIcon /> : <SendIcon />}
+                    </button>
                 </form>
                  <div className="text-xs text-slate-400 mt-2">
-                    {/* Fix: Replaced check against deprecated 'data_preview' view. The logic is updated to only show example prompts on the analysis dashboard. */}
                     {currentView === 'analysis_dashboard' 
                         ? 'e.g., "Sum of sales by region", or "Remove rows for USA"'
                         : ''
