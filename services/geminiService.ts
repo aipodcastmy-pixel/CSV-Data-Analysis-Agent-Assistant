@@ -1,7 +1,7 @@
 // This service now handles both Google Gemini and OpenAI models.
 import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
 import OpenAI from 'openai';
-import { AnalysisPlan, CsvData, ColumnProfile, AnalysisCardData, AiChatResponse, ChatMessage, Settings, DataPreparationPlan, CardContext, CsvRow, AppView } from '../types';
+import { AnalysisPlan, CsvData, ColumnProfile, AnalysisCardData, AiChatResponse, ChatMessage, Settings, DataPreparationPlan, CardContext, CsvRow, AppView, AggregationType } from '../types';
 import { executePlan } from "../utils/dataProcessor";
 import {
     createDataPreparationPrompt,
@@ -14,6 +14,7 @@ import {
     createChatPrompt,
 } from './promptTemplates';
 
+const ALLOWED_AGGREGATIONS: Set<AggregationType> = new Set(['sum', 'count', 'avg']);
 
 // Helper for retrying API calls
 const withRetry = async <T>(fn: () => Promise<T>, retries = 2): Promise<T> => {
@@ -31,6 +32,78 @@ const withRetry = async <T>(fn: () => Promise<T>, retries = 2): Promise<T> => {
         }
     }
     throw lastError;
+};
+
+// Helper to validate a plan object from the AI
+const isValidPlan = (plan: any): plan is AnalysisPlan => {
+    if (!plan || typeof plan !== 'object' || !plan.chartType || !plan.title) {
+        console.warn('Skipping invalid plan: missing chartType or title.', plan);
+        return false;
+    }
+    if (plan.chartType === 'scatter') {
+        if (!plan.xValueColumn || !plan.yValueColumn) {
+            console.warn('Skipping invalid scatter plot plan: missing xValueColumn or yValueColumn.', plan);
+            return false;
+        }
+    } else {
+        if (!plan.aggregation || !plan.groupByColumn) {
+            console.warn(`Skipping invalid plan: missing aggregation or groupByColumn for chart type ${plan.chartType}.`, plan);
+            return false;
+        }
+        if (!ALLOWED_AGGREGATIONS.has(plan.aggregation)) {
+            console.warn(`Skipping invalid plan: unsupported aggregation type "${plan.aggregation}".`, plan);
+            return false;
+        }
+        if (plan.aggregation !== 'count' && !plan.valueColumn) {
+            console.warn('Skipping invalid plan: missing valueColumn for sum/avg aggregation.', plan);
+            return false;
+        }
+    }
+    return true;
+};
+
+/**
+ * Parses a string that is expected to contain a JSON array, but might be malformed.
+ * Handles cases where the array is wrapped in markdown, is inside an object, or is just a single object.
+ * @param responseText The raw text response from the AI.
+ * @returns A parsed array of objects.
+ */
+const robustlyParseJsonArray = (responseText: string): any[] => {
+    let content = responseText.trim();
+
+    // 1. Try to extract JSON from markdown code blocks
+    const markdownMatch = content.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+    if (markdownMatch && markdownMatch[1]) {
+        content = markdownMatch[1];
+    }
+
+    try {
+        const resultObject = JSON.parse(content);
+
+        // Case 1: The result is already an array.
+        if (Array.isArray(resultObject)) {
+            return resultObject;
+        }
+
+        if (typeof resultObject === 'object' && resultObject !== null) {
+            // Case 2: The result is an object containing an array.
+            // Find the first value that is an array and return it.
+            const nestedArray = Object.values(resultObject).find(v => Array.isArray(v));
+            if (nestedArray && Array.isArray(nestedArray)) {
+                return nestedArray;
+            }
+            
+            // Case 3: The result is a single plan object, not in an array.
+            if ('chartType' in resultObject && 'title' in resultObject) {
+                return [resultObject];
+            }
+        }
+    } catch (e) {
+        console.error("Failed to parse AI response as JSON:", e, "Content:", content);
+        throw new Error(`AI response could not be parsed as JSON. Content starts with: "${content.substring(0, 150)}..."`);
+    }
+
+    throw new Error("Response did not contain a recognizable JSON array or object of plans.");
 };
 
 
@@ -114,8 +187,8 @@ export const generateDataPreparationPlan = async (
                 jsonStr = response.choices[0].message.content;
 
             } else { // Google Gemini
-                if (!settings.geminiApiKey) return { explanation: "No transformation needed as API key is not set.", jsFunctionBody: null, outputColumns: columns };
-                const ai = new GoogleGenAI({ apiKey: settings.geminiApiKey });
+                // Fix: Use process.env.API_KEY for Gemini API key as per guidelines.
+                const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
                 const prompt = `${promptContent}\nYour response must be a valid JSON object adhering to the provided schema.`;
 
                 const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
@@ -175,12 +248,12 @@ const generateCandidatePlans = async (
     const categoricalCols = columns.filter(c => c.type === 'categorical' || c.type === 'date' || c.type === 'time').map(c => c.name);
     const numericalCols = columns.filter(c => c.type === 'numerical' || c.type === 'currency' || c.type === 'percentage').map(c => c.name);
     
-    let jsonStr: string;
+    let plans: AnalysisPlan[];
     const promptContent = createCandidatePlansPrompt(categoricalCols, numericalCols, sampleData, numPlans);
 
     if (settings.provider === 'openai') {
         const systemPrompt = `You are a senior business intelligence analyst specializing in ERP and financial data. Your task is to generate a diverse list of insightful analysis plan candidates for a given dataset by identifying common data patterns.
-You MUST respond with a single valid JSON array of plan objects, and nothing else. The JSON object must adhere to the provided schema.`;
+You MUST respond with a single valid JSON object with a single key "plans" that contains an array of plan objects, and nothing else. The JSON object must adhere to the provided schema.`;
 
         const openai = new OpenAI({ apiKey: settings.openAIApiKey, dangerouslyAllowBrowser: true });
         // FIX: Explicitly type the response from the OpenAI API call.
@@ -194,15 +267,12 @@ You MUST respond with a single valid JSON array of plan objects, and nothing els
         if (!content) {
             throw new Error("OpenAI returned an empty response.");
         }
-
-        // OpenAI may wrap the array in an object, e.g. {"plans": [...]}. We need to find the array.
-        const resultObject = JSON.parse(content);
-        const arrayCandidate = Object.values(resultObject).find(v => Array.isArray(v));
-        if (!arrayCandidate) throw new Error("OpenAI response did not contain a JSON array of plans.");
-        jsonStr = JSON.stringify(arrayCandidate);
+        
+        plans = robustlyParseJsonArray(content);
     
     } else { // Google Gemini
-        const ai = new GoogleGenAI({ apiKey: settings.geminiApiKey });
+        // Fix: Use process.env.API_KEY for Gemini API key as per guidelines.
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
         const prompt = `${promptContent}\nYour response must be a valid JSON array of plan objects. Do not include any other text or explanations.`;
         const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
             model: settings.model,
@@ -212,11 +282,10 @@ You MUST respond with a single valid JSON array of plan objects, and nothing els
                 responseSchema: planSchema,
             },
         }));
-        jsonStr = response.text.trim();
+        plans = robustlyParseJsonArray(response.text.trim());
     }
 
-    const plans = JSON.parse(jsonStr) as AnalysisPlan[];
-    return plans.filter((p: any) => p.chartType && p.title);
+    return plans.filter(isValidPlan);
 };
 
 // Helper function for the second step: the AI Quality Gate
@@ -224,12 +293,12 @@ const refineAndConfigurePlans = async (
     plansWithData: { plan: AnalysisPlan; aggregatedSample: CsvRow[] }[],
     settings: Settings
 ): Promise<AnalysisPlan[]> => {
-    let jsonStr: string;
+    let rawPlans: any[];
     const promptContent = createRefinePlansPrompt(plansWithData);
 
     if(settings.provider === 'openai') {
-        const systemPrompt = `You are a Quality Review Data Analyst. Your job is to review a list of proposed analysis plans and their data samples. Your goal is to select ONLY the most insightful and readable charts for the end-user, and configure them for the best default view. Your final output must be an array of ONLY the good, configured plan objects. Do not include the discarded plans.
-You MUST respond with a single valid JSON array of plan objects, and nothing else. The JSON object must adhere to the provided schema.`;
+        const systemPrompt = `You are a Quality Review Data Analyst. Your job is to review a list of proposed analysis plans and their data samples. Your goal is to select ONLY the most insightful and readable charts for the end-user, and configure them for the best default view.
+You MUST respond with a single valid JSON object with a single key "plans" that contains an array of ONLY the good, configured plan objects. Do not include the discarded plans. The JSON object must adhere to the provided schema.`;
         
         const openai = new OpenAI({ apiKey: settings.openAIApiKey, dangerouslyAllowBrowser: true });
         // FIX: Explicitly type the response from the OpenAI API call.
@@ -244,13 +313,11 @@ You MUST respond with a single valid JSON array of plan objects, and nothing els
             throw new Error("OpenAI returned an empty response.");
         }
         
-        const resultObject = JSON.parse(content);
-        const arrayCandidate = Object.values(resultObject).find(v => Array.isArray(v));
-        if (!arrayCandidate) throw new Error("OpenAI response did not contain a JSON array of plans.");
-        jsonStr = JSON.stringify(arrayCandidate);
+        rawPlans = robustlyParseJsonArray(content);
 
     } else { // Google Gemini
-        const ai = new GoogleGenAI({ apiKey: settings.geminiApiKey });
+        // Fix: Use process.env.API_KEY for Gemini API key as per guidelines.
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
         const prompt = `${promptContent}\nYour response must be a valid JSON array of the refined and configured plan objects, adhering to the provided schema. Do not include any other text or explanations.`;
         const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
             model: settings.model,
@@ -260,10 +327,19 @@ You MUST respond with a single valid JSON array of plan objects, and nothing els
                 responseSchema: planSchema,
             },
         }));
-        jsonStr = response.text.trim();
+        rawPlans = robustlyParseJsonArray(response.text.trim());
     }
     
-    return JSON.parse(jsonStr) as AnalysisPlan[];
+    // FIX: Normalize the AI's response. The AI sometimes returns the full { plan, aggregatedSample }
+    // object instead of just the plan. This extracts the `plan` object if it exists.
+    const normalizedPlans = rawPlans.map(p => {
+        if (p && p.plan && typeof p.plan === 'object') {
+            return p.plan;
+        }
+        return p;
+    });
+
+    return normalizedPlans.filter(isValidPlan);
 };
 
 
@@ -272,11 +348,12 @@ export const generateAnalysisPlans = async (
     sampleData: CsvData['data'],
     settings: Settings
 ): Promise<AnalysisPlan[]> => {
-    const isApiKeySet = settings.provider === 'google' ? !!settings.geminiApiKey : !!settings.openAIApiKey;
+    // Fix: Update API key check logic. For Google, assume key is present via env vars.
+    const isApiKeySet = settings.provider === 'google' || !!settings.openAIApiKey;
     if (!isApiKeySet) throw new Error("API Key not provided.");
 
     try {
-        // Step 1: Generate a broad list of candidate plans
+        // Step 1: Generate a broad list of candidate plans (already validated inside the function)
         const candidatePlans = await generateCandidatePlans(columns, sampleData, settings, 12);
         if (candidatePlans.length === 0) return [];
 
@@ -285,15 +362,24 @@ export const generateAnalysisPlans = async (
         const plansWithDataForReview = candidatePlans.map(plan => {
             try {
                 const aggregatedSample = executePlan(sampleCsvData, plan);
-                return { plan, aggregatedSample: aggregatedSample.slice(0, 20) }; // Limit sample size for the prompt
+                // A plan is only viable for review if it produces data.
+                if (aggregatedSample.length > 0) {
+                    return { plan, aggregatedSample: aggregatedSample.slice(0, 20) }; // Limit sample size for the prompt
+                }
+                return null;
             } catch (e) {
+                // This catch is a safeguard, but isValidPlan should prevent most errors.
+                console.warn(`Execution of plan "${plan.title}" failed during review stage:`, e);
                 return null;
             }
-        }).filter((p): p is { plan: AnalysisPlan; aggregatedSample: CsvRow[] } => p !== null && p.aggregatedSample.length > 0);
+        }).filter((p): p is { plan: AnalysisPlan; aggregatedSample: CsvRow[] } => p !== null);
         
-        if (plansWithDataForReview.length === 0) return candidatePlans.slice(0, 4); // Fallback if all executions fail
+        if (plansWithDataForReview.length === 0) {
+            console.warn("No candidate plans produced data for AI review, returning initial valid candidates.");
+            return candidatePlans.slice(0, 4);
+        }
         
-        // Step 3: AI Quality Gate - Ask AI to review and refine the plans
+        // Step 3: AI Quality Gate - Ask AI to review and refine the plans (already validated inside the function)
         const refinedPlans = await refineAndConfigurePlans(plansWithDataForReview, settings);
 
         // Ensure we have a minimum number of plans
@@ -321,7 +407,8 @@ export const generateAnalysisPlans = async (
 
 
 export const generateSummary = async (title: string, data: CsvData['data'], settings: Settings): Promise<string> => {
-    const isApiKeySet = settings.provider === 'google' ? !!settings.geminiApiKey : !!settings.openAIApiKey;
+    // Fix: Update API key check logic. For Google, assume key is present via env vars.
+    const isApiKeySet = settings.provider === 'google' || !!settings.openAIApiKey;
     if (!isApiKeySet) return 'AI Summaries are disabled. No API Key provided.';
     
     try {
@@ -338,7 +425,8 @@ export const generateSummary = async (title: string, data: CsvData['data'], sett
             return response.choices[0].message.content || 'No summary generated.';
 
         } else { // Google Gemini
-            const ai = new GoogleGenAI({ apiKey: settings.geminiApiKey });
+            // Fix: Use process.env.API_KEY for Gemini API key as per guidelines.
+            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
             const prompt = `${promptContent}\nYour response must be only the summary text in the specified format.`;
 
             const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
@@ -355,7 +443,8 @@ export const generateSummary = async (title: string, data: CsvData['data'], sett
 
 // NEW: Function for the AI to create its core analysis summary (transparent thinking)
 export const generateCoreAnalysisSummary = async (cardContext: CardContext[], columns: ColumnProfile[], settings: Settings): Promise<string> => {
-    const isApiKeySet = settings.provider === 'google' ? !!settings.geminiApiKey : !!settings.openAIApiKey;
+    // Fix: Update API key check logic. For Google, assume key is present via env vars.
+    const isApiKeySet = settings.provider === 'google' || !!settings.openAIApiKey;
     if (!isApiKeySet || cardContext.length === 0) return "Could not generate an initial analysis summary.";
 
     try {
@@ -378,7 +467,8 @@ Produce a single, concise paragraph in ${settings.language}. This is your initia
             return response.choices[0].message.content || 'No summary generated.';
 
         } else { // Google Gemini
-            const ai = new GoogleGenAI({ apiKey: settings.geminiApiKey });
+            // Fix: Use process.env.API_KEY for Gemini API key as per guidelines.
+            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
             const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
                 model: settings.model,
                 contents: promptContent,
@@ -401,7 +491,8 @@ const proactiveInsightSchema = {
 };
 
 export const generateProactiveInsights = async (cardContext: CardContext[], settings: Settings): Promise<{ insight: string; cardId: string; } | null> => {
-    const isApiKeySet = settings.provider === 'google' ? !!settings.geminiApiKey : !!settings.openAIApiKey;
+    // Fix: Update API key check logic. For Google, assume key is present via env vars.
+    const isApiKeySet = settings.provider === 'google' || !!settings.openAIApiKey;
     if (!isApiKeySet || cardContext.length === 0) return null;
 
     try {
@@ -426,7 +517,8 @@ export const generateProactiveInsights = async (cardContext: CardContext[], sett
             jsonStr = content;
         
         } else { // Google Gemini
-            const ai = new GoogleGenAI({ apiKey: settings.geminiApiKey });
+            // Fix: Use process.env.API_KEY for Gemini API key as per guidelines.
+            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
             const prompt = `${promptContent}\nYour response must be a valid JSON object adhering to the provided schema.`;
 
             const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
@@ -449,7 +541,8 @@ export const generateProactiveInsights = async (cardContext: CardContext[], sett
 
 
 export const generateFinalSummary = async (cards: AnalysisCardData[], settings: Settings): Promise<string> => {
-    const isApiKeySet = settings.provider === 'google' ? !!settings.geminiApiKey : !!settings.openAIApiKey;
+    // Fix: Update API key check logic. For Google, assume key is present via env vars.
+    const isApiKeySet = settings.provider === 'google' || !!settings.openAIApiKey;
     if (!isApiKeySet) return 'AI Summaries are disabled. No API Key provided.';
 
     const summaries = cards.map(card => {
@@ -476,7 +569,8 @@ Your response should be a single paragraph of insightful business analysis.`;
             return response.choices[0].message.content || 'No final summary generated.';
 
         } else { // Google Gemini
-            const ai = new GoogleGenAI({ apiKey: settings.geminiApiKey });
+            // Fix: Use process.env.API_KEY for Gemini API key as per guidelines.
+            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
             const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
                 model: settings.model,
                 contents: promptContent,
@@ -574,7 +668,8 @@ export const generateChatResponse = async (
     longTermMemory: string[],
     dataPreparationPlan: DataPreparationPlan | null
 ): Promise<AiChatResponse> => {
-    const isApiKeySet = settings.provider === 'google' ? !!settings.geminiApiKey : !!settings.openAIApiKey;
+    // Fix: Update API key check logic. For Google, assume key is present via env vars.
+    const isApiKeySet = settings.provider === 'google' || !!settings.openAIApiKey;
     if (!isApiKeySet) {
         return { actions: [{ responseType: 'text_response', text: 'Cloud AI is disabled. API Key not provided.', thought: 'API key is missing, so I must inform the user.' }] };
     }
@@ -605,7 +700,8 @@ Your output MUST be a single JSON object with an "actions" key containing an arr
             jsonStr = content;
 
         } else { // Google Gemini
-            const ai = new GoogleGenAI({ apiKey: settings.geminiApiKey });
+            // Fix: Use process.env.API_KEY for Gemini API key as per guidelines.
+            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
             const prompt = `${promptContent}\nYour output MUST be a single JSON object with an "actions" key containing an array of action objects.`;
             const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
                 model: settings.model,

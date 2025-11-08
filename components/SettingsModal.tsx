@@ -78,23 +78,15 @@ export const SettingsModal: React.FC = () => {
                         </div>
                     </div>
                     
+                    {/* Fix: Remove Gemini API key input and show an informational message instead, per guidelines. */}
                     {settings.provider === 'google' && (
                         <div>
-                            <label htmlFor="geminiApiKey" className="block text-sm font-medium text-slate-700">
+                            <label className="block text-sm font-medium text-slate-700">
                                 Gemini API Key
                             </label>
-                            <input
-                                type="password"
-                                id="geminiApiKey"
-                                name="geminiApiKey"
-                                value={settings.geminiApiKey}
-                                onChange={handleInputChange}
-                                className="mt-1 block w-full bg-white border border-slate-300 rounded-md py-2 px-3 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                placeholder="Enter your API key"
-                            />
-                            <p className="text-xs text-slate-500 mt-1">
-                                Get your key from <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Google AI Studio</a>.
-                            </p>
+                             <div className="mt-1 text-sm text-slate-700 bg-slate-100 p-3 rounded-md border border-slate-200">
+                                The Google Gemini API key is configured securely via an environment variable and is ready to use.
+                            </div>
                         </div>
                     )}
                     

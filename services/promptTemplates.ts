@@ -86,6 +86,7 @@ export const createCandidatePlansPrompt = (categoricalCols: string[], numericalC
     
     Rules:
     - For 'scatter' plots, you MUST provide 'xValueColumn' and 'yValueColumn' (both numerical) and you MUST NOT provide 'aggregation' or 'groupByColumn'.
+    - **CRITICAL**: Only use one of the following aggregation types: 'sum', 'count', 'avg'. Do NOT use other statistical measures like 'stddev', 'variance', 'median', etc.
     - Do not create plans that are too granular (e.g., grouping by a unique ID column if there are thousands of them).
 `;
 

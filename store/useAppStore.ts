@@ -1,4 +1,6 @@
 import { create } from 'zustand';
+// Fix: Import MouseEvent from React and alias it to resolve the type error.
+import type { MouseEvent as ReactMouseEvent } from 'react';
 import { AnalysisCardData, ChatMessage, ProgressMessage, CsvData, AnalysisPlan, AppState, ColumnProfile, AiAction, CardContext, ChartType, DomAction, Settings, Report, ReportListItem, AppView, CsvRow, DataPreparationPlan } from '../types';
 import { processCsv, profileData, executePlan, executeJavaScriptDataTransform } from '../utils/dataProcessor';
 import { generateAnalysisPlans, generateSummary, generateFinalSummary, generateChatResponse, generateDataPreparationPlan, generateCoreAnalysisSummary, generateProactiveInsights } from '../services/geminiService';
@@ -43,7 +45,7 @@ interface StoreActions {
     addProgress: (message: string, type?: 'system' | 'error') => void;
     loadReportsList: () => Promise<void>;
     handleSaveSettings: (newSettings: Settings) => void;
-    handleAsideMouseDown: (e: React.MouseEvent) => void;
+    handleAsideMouseDown: (e: ReactMouseEvent) => void;
     runAnalysisPipeline: (plans: AnalysisPlan[], data: CsvData, isChatRequest?: boolean) => Promise<AnalysisCardData[]>;
     handleInitialAnalysis: (dataForAnalysis: CsvData) => Promise<void>;
     handleFileUpload: (file: File) => Promise<void>;
@@ -82,7 +84,12 @@ export const useAppStore = create<StoreState & StoreActions>((set, get) => ({
     settings: getSettings(),
     reportsList: [],
     isResizing: false,
-    isApiKeySet: !!(getSettings().geminiApiKey || getSettings().openAIApiKey),
+    // Fix: Update API key status logic to align with guidelines.
+    isApiKeySet: (() => {
+        const settings = getSettings();
+        // For Google, assume the API key is set via environment variables. For OpenAI, check settings.
+        return settings.provider === 'google' || !!settings.openAIApiKey;
+    })(),
 
     init: async () => {
         const currentSession = await getReport(CURRENT_SESSION_KEY);
@@ -112,9 +119,10 @@ export const useAppStore = create<StoreState & StoreActions>((set, get) => ({
 
     handleSaveSettings: (newSettings) => {
         saveSettings(newSettings);
+        // Fix: Update API key status logic when settings change.
         set({ 
             settings: newSettings,
-            isApiKeySet: newSettings.provider === 'google' ? !!newSettings.geminiApiKey : !!newSettings.openAIApiKey
+            isApiKeySet: newSettings.provider === 'google' || !!newSettings.openAIApiKey
         });
     },
 

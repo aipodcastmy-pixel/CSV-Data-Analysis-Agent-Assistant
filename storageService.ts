@@ -81,7 +81,6 @@ export const deleteReport = async (id: string): Promise<void> => {
 // Settings Management
 const defaultSettings: Settings = {
     provider: 'google',
-    geminiApiKey: '',
     openAIApiKey: '',
     model: 'gemini-2.5-pro',
     language: 'English'
@@ -100,10 +99,12 @@ export const getSettings = (): Settings => {
         const settingsJson = localStorage.getItem(SETTINGS_KEY);
         if (settingsJson) {
             const savedSettings = JSON.parse(settingsJson);
-            // Migration for old settings with 'apiKey'
-            if (savedSettings.apiKey && !savedSettings.geminiApiKey) {
-                savedSettings.geminiApiKey = savedSettings.apiKey;
+            // Fix: Clean up old settings that might contain API keys no longer managed in the UI.
+            if (savedSettings.apiKey) {
                 delete savedSettings.apiKey;
+            }
+            if (savedSettings.geminiApiKey) {
+                delete savedSettings.geminiApiKey;
             }
             return { ...defaultSettings, ...savedSettings };
         }
