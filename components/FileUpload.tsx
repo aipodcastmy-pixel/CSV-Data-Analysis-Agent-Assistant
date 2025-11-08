@@ -1,15 +1,16 @@
 import React, { useState, useCallback } from 'react';
 import { ProgressMessage } from '../types';
+import { useAppStore } from '../store/useAppStore';
 
-interface FileUploadProps {
-    onFileUpload: (file: File) => void;
-    isBusy: boolean;
-    isApiKeySet: boolean;
-    progressMessages: ProgressMessage[];
-    fileName: string | null;
-}
+export const FileUpload: React.FC = () => {
+    const { handleFileUpload, isBusy, isApiKeySet, progressMessages, fileName } = useAppStore(state => ({
+        handleFileUpload: state.handleFileUpload,
+        isBusy: state.isBusy,
+        isApiKeySet: state.isApiKeySet,
+        progressMessages: state.progressMessages,
+        fileName: state.csvData?.fileName || null,
+    }));
 
-export const FileUpload: React.FC<FileUploadProps> = ({ onFileUpload, isBusy, isApiKeySet, progressMessages, fileName }) => {
     const [dragActive, setDragActive] = useState(false);
     
     const handleDrag = useCallback((e: React.DragEvent) => {
@@ -29,14 +30,14 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onFileUpload, isBusy, is
         setDragActive(false);
         if (!isApiKeySet) return;
         if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-            onFileUpload(e.dataTransfer.files[0]);
+            handleFileUpload(e.dataTransfer.files[0]);
         }
-    }, [onFileUpload, isApiKeySet]);
+    }, [handleFileUpload, isApiKeySet]);
     
     const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (!isApiKeySet) return;
         if (e.target.files && e.target.files[0]) {
-            onFileUpload(e.target.files[0]);
+            handleFileUpload(e.target.files[0]);
         }
     };
 

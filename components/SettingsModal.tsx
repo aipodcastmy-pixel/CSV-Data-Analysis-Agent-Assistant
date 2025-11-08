@@ -1,19 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import { Settings } from '../types';
-
-interface SettingsModalProps {
-    isOpen: boolean;
-    onClose: () => void;
-    onSave: (settings: Settings) => void;
-    currentSettings: Settings;
-}
+import { useAppStore } from '../store/useAppStore';
 
 const languages: Settings['language'][] = ['English', 'Mandarin', 'Spanish', 'Japanese', 'French'];
 const googleModels: Settings['model'][] = ['gemini-2.5-flash', 'gemini-2.5-pro'];
 const openAIModels: Settings['model'][] = ['gpt-5', 'gpt-5-mini', 'gpt-4o', 'gpt-4-turbo'];
 
 
-export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, onSave, currentSettings }) => {
+export const SettingsModal: React.FC = () => {
+    const { isOpen, onClose, onSave, currentSettings } = useAppStore(state => ({
+        isOpen: state.isSettingsModalOpen,
+        onClose: () => state.setIsSettingsModalOpen(false),
+        onSave: state.handleSaveSettings,
+        currentSettings: state.settings,
+    }));
+
     const [settings, setSettings] = useState<Settings>(currentSettings);
 
     useEffect(() => {

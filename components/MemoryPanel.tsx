@@ -1,11 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { vectorStore } from '../services/vectorStore';
 import { VectorStoreDocument } from '../types';
-
-interface MemoryPanelProps {
-    isOpen: boolean;
-    onClose: () => void;
-}
+import { useAppStore } from '../store/useAppStore';
 
 const CloseIcon: React.FC = () => (
     <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -24,7 +20,10 @@ type SearchResult = { text: string; score: number };
 // Soft capacity limit for the visual progress bar (in KB)
 const MEMORY_CAPACITY_KB = 5 * 1024; // 5 MB
 
-export const MemoryPanel: React.FC<MemoryPanelProps> = ({ isOpen, onClose }) => {
+export const MemoryPanel: React.FC = () => {
+    const isOpen = useAppStore(state => state.isMemoryPanelOpen);
+    const onClose = () => useAppStore.getState().setIsMemoryPanelOpen(false);
+
     const [documents, setDocuments] = useState<VectorStoreDocument[]>([]);
     const [searchQuery, setSearchQuery] = useState('');
     const [searchResults, setSearchResults] = useState<SearchResult[]>([]);

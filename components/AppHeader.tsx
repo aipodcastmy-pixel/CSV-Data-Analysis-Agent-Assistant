@@ -1,14 +1,23 @@
 import React from 'react';
 import { NewIcon, HistoryIcon, ShowAssistantIcon } from './Icons';
+import { useAppStore } from '../store/useAppStore';
 
-interface AppHeaderProps {
-    onNewSession: () => void;
-    onOpenHistory: () => void;
-    isAsideVisible: boolean;
-    onShowAssistant: () => void;
-}
+export const AppHeader: React.FC = () => {
+    const {
+        onNewSession,
+        onOpenHistory,
+        isAsideVisible,
+        onShowAssistant
+    } = useAppStore(state => ({
+        onNewSession: state.handleNewSession,
+        onOpenHistory: () => {
+            state.loadReportsList();
+            state.setIsHistoryPanelOpen(true);
+        },
+        isAsideVisible: state.isAsideVisible,
+        onShowAssistant: () => state.setIsAsideVisible(true)
+    }));
 
-export const AppHeader: React.FC<AppHeaderProps> = ({ onNewSession, onOpenHistory, isAsideVisible, onShowAssistant }) => {
     return (
         <header className="mb-6 flex justify-between items-start flex-shrink-0">
             <div className="max-w-xs">

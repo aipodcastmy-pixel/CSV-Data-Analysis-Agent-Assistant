@@ -1,18 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ProgressMessage, ChatMessage, AppView } from '../types';
-
-interface ChatPanelProps {
-    progressMessages: ProgressMessage[];
-    chatHistory: ChatMessage[];
-    isBusy: boolean;
-    onSendMessage: (message: string) => void;
-    isApiKeySet: boolean;
-    onToggleVisibility: () => void;
-    onOpenSettings: () => void;
-    onOpenMemory: () => void;
-    onShowCard: (cardId: string) => void;
-    currentView: AppView;
-}
+import { useAppStore } from '../store/useAppStore';
 
 const HideIcon: React.FC = () => (
     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -48,7 +36,31 @@ const LoadingIcon: React.FC = () => (
 );
 
 
-export const ChatPanel: React.FC<ChatPanelProps> = ({ progressMessages, chatHistory, isBusy, onSendMessage, isApiKeySet, onToggleVisibility, onOpenSettings, onOpenMemory, onShowCard, currentView }) => {
+export const ChatPanel: React.FC = () => {
+    const {
+        progressMessages,
+        chatHistory,
+        isBusy,
+        handleChatMessage,
+        isApiKeySet,
+        setIsAsideVisible,
+        setIsSettingsModalOpen,
+        setIsMemoryPanelOpen,
+        handleShowCardFromChat,
+        currentView,
+    } = useAppStore(state => ({
+        progressMessages: state.progressMessages,
+        chatHistory: state.chatHistory,
+        isBusy: state.isBusy,
+        handleChatMessage: state.handleChatMessage,
+        isApiKeySet: state.isApiKeySet,
+        setIsAsideVisible: state.setIsAsideVisible,
+        setIsSettingsModalOpen: state.setIsSettingsModalOpen,
+        setIsMemoryPanelOpen: state.setIsMemoryPanelOpen,
+        handleShowCardFromChat: state.handleShowCardFromChat,
+        currentView: state.currentView,
+    }));
+
     const [input, setInput] = useState('');
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -75,7 +87,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ progressMessages, chatHist
     const handleSend = (e: React.FormEvent | React.KeyboardEvent) => {
         e.preventDefault();
         if (input.trim() && !isBusy) {
-            onSendMessage(input.trim());
+            handleChatMessage(input.trim());
             setInput('');
         }
     };
@@ -89,7 +101,6 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ progressMessages, chatHist
     const getPlaceholder = () => {
         if (!isApiKeySet) return "Set API Key in settings to chat";
         switch (currentView) {
-            // Fix: Removed 'data_preview' case as it's not a valid AppView type and merged its intent.
             case 'analysis_dashboard':
                 return "Ask for a new analysis or data transformation...";
             case 'file_upload':
@@ -136,7 +147,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ progressMessages, chatHist
                         <p className="text-sm text-slate-700 whitespace-pre-wrap">{msg.text}</p>
                          {msg.cardId && (
                             <button 
-                                onClick={() => onShowCard(msg.cardId!)}
+                                onClick={() => handleShowCardFromChat(msg.cardId!)}
                                 className="mt-2 text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded-md hover:bg-yellow-200 transition-colors w-full text-left font-medium"
                             >
                                 → Show Related Card
@@ -163,7 +174,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ progressMessages, chatHist
                          <p className={`text-sm ${msg.isError ? 'text-red-800' : 'text-slate-800'}`}>{msg.text}</p>
                          {msg.cardId && !msg.isError && (
                             <button 
-                                onClick={() => onShowCard(msg.cardId!)}
+                                onClick={() => handleShowCardFromChat(msg.cardId!)}
                                 className="mt-2 text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-md hover:bg-blue-200 transition-colors w-full text-left font-medium"
                             >
                                 → Show Related Card
@@ -189,7 +200,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ progressMessages, chatHist
                 <h2 className="text-xl font-semibold text-slate-900">Assistant</h2>
                  <div className="flex items-center space-x-3">
                     <button
-                        onClick={onOpenMemory}
+                        onClick={() => setIsMemoryPanelOpen(true)}
                         className="p-1 text-slate-500 rounded-full hover:bg-slate-200 hover:text-slate-800 transition-colors"
                         title="View AI Memory"
                         aria-label="View AI Memory"
@@ -197,7 +208,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ progressMessages, chatHist
                         <MemoryIcon />
                     </button>
                     <button
-                        onClick={onOpenSettings}
+                        onClick={() => setIsSettingsModalOpen(true)}
                         className="p-1 text-slate-500 rounded-full hover:bg-slate-200 hover:text-slate-800 transition-colors"
                         title="Settings"
                         aria-label="Open Settings"
@@ -205,7 +216,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ progressMessages, chatHist
                         <SettingsIcon />
                     </button>
                     <button 
-                        onClick={onToggleVisibility} 
+                        onClick={() => setIsAsideVisible(false)} 
                         className="p-1 text-slate-500 rounded-full hover:bg-slate-200 hover:text-slate-800 transition-colors"
                         title="Hide Panel"
                         aria-label="Hide Assistant Panel"

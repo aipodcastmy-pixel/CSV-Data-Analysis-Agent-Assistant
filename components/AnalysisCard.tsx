@@ -6,14 +6,10 @@ import { exportToPng, exportToCsv, exportToHtml } from '../utils/exportUtils';
 import { ChartTypeSwitcher } from './ChartTypeSwitcher';
 import { applyTopNWithOthers } from '../utils/dataProcessor';
 import { InteractiveLegend } from './InteractiveLegend';
+import { useAppStore } from '../store/useAppStore';
 
 interface AnalysisCardProps {
-    cardData: AnalysisCardData;
-    onChartTypeChange: (cardId: string, newType: ChartType) => void;
-    onToggleDataVisibility: (cardId: string) => void;
-    onTopNChange: (cardId: string, topN: number | null) => void;
-    onHideOthersChange: (cardId: string, hide: boolean) => void;
-    onToggleLegendLabel: (cardId: string, label: string) => void;
+    cardId: string;
 }
 
 const ExportIcon: React.FC = () => (
@@ -36,8 +32,22 @@ const ClearSelectionIcon: React.FC = () => (
 );
 
 
-export const AnalysisCard: React.FC<AnalysisCardProps> = ({ cardData, onChartTypeChange, onToggleDataVisibility, onTopNChange, onHideOthersChange, onToggleLegendLabel }) => {
-    const { id, plan, aggregatedData, summary, displayChartType, isDataVisible, topN, hideOthers, disableAnimation, filter, hiddenLabels = [] } = cardData;
+export const AnalysisCard: React.FC<AnalysisCardProps> = ({ cardId }) => {
+    const cardData = useAppStore(state => state.analysisCards.find(c => c.id === cardId));
+    const { 
+        handleChartTypeChange, 
+        handleToggleDataVisibility, 
+        handleTopNChange, 
+        handleHideOthersChange, 
+        handleToggleLegendLabel 
+    } = useAppStore(state => ({
+        handleChartTypeChange: state.handleChartTypeChange,
+        handleToggleDataVisibility: state.handleToggleDataVisibility,
+        handleTopNChange: state.handleTopNChange,
+        handleHideOthersChange: state.handleHideOthersChange,
+        handleToggleLegendLabel: state.handleToggleLegendLabel,
+    }));
+
     const cardRef = useRef<HTMLDivElement>(null);
     const chartRendererRef = useRef<ChartRendererHandle>(null);
 
@@ -46,6 +56,13 @@ export const AnalysisCard: React.FC<AnalysisCardProps> = ({ cardData, onChartTyp
     const [isZoomed, setIsZoomed] = useState(false);
     const [showSelectionDetails, setShowSelectionDetails] = useState(true);
     
+    // If cardData is not found (e.g., during a state update), render nothing to avoid errors.
+    if (!cardData) {
+        return null;
+    }
+
+    const { id, plan, aggregatedData, summary, displayChartType, isDataVisible, topN, hideOthers, disableAnimation, filter, hiddenLabels = [] } = cardData;
+
     const summaryParts = summary.split('---');
     const englishSummary = summaryParts[0]?.trim();
     const mandarinSummary = summaryParts[1]?.trim();
@@ -119,9 +136,9 @@ export const AnalysisCard: React.FC<AnalysisCardProps> = ({ cardData, onChartTyp
 
     const handleResetZoom = () => chartRendererRef.current?.resetZoom();
     const clearSelection = () => setSelectedIndices([]);
-    const handleTopNChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const onTopNChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
         const value = e.target.value === 'all' ? null : parseInt(e.target.value, 10);
-        onTopNChange(id, value);
+        handleTopNChange(id, value);
     };
     
     const selectedData = selectedIndices.map(index => dataForDisplay[index]);
@@ -131,7 +148,7 @@ export const AnalysisCard: React.FC<AnalysisCardProps> = ({ cardData, onChartTyp
             <div className="flex justify-between items-start gap-4 mb-2">
                 <h3 className="text-lg font-bold text-slate-900 flex-1">{plan.title}</h3>
                 <div className="flex items-center bg-slate-100 rounded-md p-0.5 space-x-0.5 flex-shrink-0">
-                    <ChartTypeSwitcher currentType={displayChartType} onChange={(newType) => onChartTypeChange(id, newType)} />
+                    <ChartTypeSwitcher currentType={displayChartType} onChange={(newType) => handleChartTypeChange(id, newType)} />
                     <div className="relative group">
                         <button disabled={isExporting} className="p-1.5 text-slate-500 hover:text-slate-900 rounded-md transition-colors hover:bg-slate-200">
                            <ExportIcon />
@@ -179,7 +196,7 @@ export const AnalysisCard: React.FC<AnalysisCardProps> = ({ cardData, onChartTyp
                             groupByKey={groupByKey}
                             valueKey={valueKey}
                             hiddenLabels={hiddenLabels}
-                            onLabelClick={(label) => onToggleLegendLabel(id, label)}
+                            onLabelClick={(label) => handleToggleLegendLabel(id, label)}
                         />
                     </div>
                 )}
@@ -208,7 +225,7 @@ export const AnalysisCard: React.FC<AnalysisCardProps> = ({ cardData, onChartTyp
 
             <div className="mt-4 flex items-center justify-between">
                 <div>
-                    <button onClick={() => onToggleDataVisibility(id)} className="text-sm text-blue-600 hover:underline">
+                    <button onClick={() => handleToggleDataVisibility(id)} className="text-sm text-blue-600 hover:underline">
                         {isDataVisible ? 'Hide' : 'Show'} Full Data Table
                     </button>
                 </div>
@@ -218,7 +235,7 @@ export const AnalysisCard: React.FC<AnalysisCardProps> = ({ cardData, onChartTyp
                         <select
                             id={`top-n-${id}`}
                             value={topN || 'all'}
-                            onChange={handleTopNChange}
+                            onChange={onTopNChange}
                             className="bg-white border border-slate-300 text-slate-800 text-xs rounded-md py-1 px-2 focus:outline-none focus:ring-1 focus:ring-blue-500"
                         >
                             <option value="all">All</option>
@@ -235,7 +252,7 @@ export const AnalysisCard: React.FC<AnalysisCardProps> = ({ cardData, onChartTyp
                                         type="checkbox"
                                         id={`hide-others-${id}`}
                                         checked={hideOthers}
-                                        onChange={(e) => onHideOthersChange(id, e.target.checked)}
+                                        onChange={(e) => handleHideOthersChange(id, e.target.checked)}
                                         className="bg-slate-100 border-slate-300 rounded focus:ring-blue-500 text-blue-600 h-3.5 w-3.5"
                                     />
                                     <span>Hide "Others"</span>

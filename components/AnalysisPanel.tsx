@@ -1,20 +1,12 @@
 import React from 'react';
-import { AnalysisCardData, ChartType } from '../types';
 import { AnalysisCard } from './AnalysisCard';
 import { FinalSummary } from './FinalSummary';
+import { useAppStore } from '../store/useAppStore';
 
+export const AnalysisPanel: React.FC = () => {
+    const cards = useAppStore(state => state.analysisCards);
+    const finalSummary = useAppStore(state => state.finalSummary);
 
-interface AnalysisPanelProps {
-    cards: AnalysisCardData[];
-    finalSummary: string | null;
-    onChartTypeChange: (cardId: string, newType: ChartType) => void;
-    onToggleDataVisibility: (cardId: string) => void;
-    onTopNChange: (cardId: string, topN: number | null) => void;
-    onHideOthersChange: (cardId: string, hide: boolean) => void;
-    onToggleLegendLabel: (cardId: string, label: string) => void;
-}
-
-export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({ cards, finalSummary, onChartTypeChange, onToggleDataVisibility, onTopNChange, onHideOthersChange, onToggleLegendLabel }) => {
     if (cards.length === 0) {
         return (
             <div className="flex items-center justify-center h-full">
@@ -33,12 +25,7 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({ cards, finalSummar
                 {cards.map((card) => (
                     <AnalysisCard 
                         key={card.id} 
-                        cardData={card} 
-                        onChartTypeChange={onChartTypeChange}
-                        onToggleDataVisibility={onToggleDataVisibility}
-                        onTopNChange={onTopNChange}
-                        onHideOthersChange={onHideOthersChange}
-                        onToggleLegendLabel={onToggleLegendLabel}
+                        cardId={card.id}
                     />
                 ))}
             </div>

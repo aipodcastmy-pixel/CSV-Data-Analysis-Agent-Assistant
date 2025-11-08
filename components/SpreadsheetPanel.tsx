@@ -1,11 +1,10 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { CsvData, SortConfig, CsvRow } from '../types';
 import { SpreadsheetTable } from './SpreadsheetTable';
+import { useAppStore } from '../store/useAppStore';
 
 interface SpreadsheetPanelProps {
-    csvData: CsvData;
     isVisible: boolean;
-    onToggleVisibility: () => void;
 }
 
 const SearchIcon: React.FC = () => (
@@ -21,15 +20,19 @@ const ChevronIcon: React.FC<{ isOpen: boolean }> = ({ isOpen }) => (
 );
 
 
-export const SpreadsheetPanel: React.FC<SpreadsheetPanelProps> = ({ csvData, isVisible, onToggleVisibility }) => {
+export const SpreadsheetPanel: React.FC<SpreadsheetPanelProps> = ({ isVisible }) => {
+    const csvData = useAppStore(state => state.csvData);
+    const onToggleVisibility = () => useAppStore.getState().setIsSpreadsheetVisible(!isVisible);
+
     const [sortConfig, setSortConfig] = useState<SortConfig | null>(null);
     const [filterText, setFilterText] = useState('');
     const [isWholeWordSearch, setIsWholeWordSearch] = useState(false);
     
-    const headers = useMemo(() => csvData.data.length > 0 ? Object.keys(csvData.data[0]) : [], [csvData.data]);
+    const headers = useMemo(() => csvData?.data.length > 0 ? Object.keys(csvData.data[0]) : [], [csvData?.data]);
     const [columnWidths, setColumnWidths] = useState<{[key: string]: number}>({});
 
     useEffect(() => {
+        if (!csvData) return;
         const initialWidths: {[key: string]: number} = {};
         headers.forEach(h => {
             const headerLength = h.length * 8 + 30; // Estimate width based on text
@@ -37,7 +40,7 @@ export const SpreadsheetPanel: React.FC<SpreadsheetPanelProps> = ({ csvData, isV
             initialWidths[h] = Math.max(120, headerLength, sampleDataLength);
         });
         setColumnWidths(initialWidths);
-    }, [headers, csvData.data]);
+    }, [headers, csvData]);
 
 
     const handleSort = (key: string) => {
@@ -72,6 +75,7 @@ export const SpreadsheetPanel: React.FC<SpreadsheetPanelProps> = ({ csvData, isV
     };
 
     const processedData = useMemo(() => {
+        if (!csvData) return [];
         let dataToProcess: CsvRow[] = [...csvData.data];
 
         // Filtering
@@ -117,8 +121,10 @@ export const SpreadsheetPanel: React.FC<SpreadsheetPanelProps> = ({ csvData, isV
         }
 
         return dataToProcess;
-    }, [csvData.data, sortConfig, filterText, isWholeWordSearch]);
+    }, [csvData, sortConfig, filterText, isWholeWordSearch]);
     
+    if (!csvData) return null;
+
     return (
         <div className="bg-white rounded-lg shadow-lg flex flex-col transition-all duration-300 border border-slate-200">
             <button

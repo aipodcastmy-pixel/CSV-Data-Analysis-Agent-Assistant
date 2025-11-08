@@ -1,14 +1,7 @@
 import React from 'react';
 import { ReportListItem } from '../types';
 import { CURRENT_SESSION_KEY } from '../storageService';
-
-interface HistoryPanelProps {
-    isOpen: boolean;
-    onClose: () => void;
-    reports: ReportListItem[];
-    onLoadReport: (id: string) => void;
-    onDeleteReport: (id: string) => void;
-}
+import { useAppStore } from '../store/useAppStore';
 
 const CloseIcon: React.FC = () => (
     <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -23,7 +16,21 @@ const DeleteIcon: React.FC = () => (
 );
 
 
-export const HistoryPanel: React.FC<HistoryPanelProps> = ({ isOpen, onClose, reports, onLoadReport, onDeleteReport }) => {
+export const HistoryPanel: React.FC = () => {
+    const { 
+        isOpen, 
+        onClose, 
+        reports, 
+        onLoadReport, 
+        onDeleteReport 
+    } = useAppStore(state => ({
+        isOpen: state.isHistoryPanelOpen,
+        onClose: () => state.setIsHistoryPanelOpen(false),
+        reports: state.reportsList,
+        onLoadReport: state.handleLoadReport,
+        onDeleteReport: state.handleDeleteReport,
+    }));
+
     if (!isOpen) {
         return null;
     }

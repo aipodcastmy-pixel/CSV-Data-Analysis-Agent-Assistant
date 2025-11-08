@@ -1,13 +1,10 @@
 import React from 'react';
 import { DataPreparationPlan, CsvRow } from '../types';
 import { DataTable } from './DataTable';
+import { useAppStore } from '../store/useAppStore';
 
 interface DataPrepDebugPanelProps {
-    plan: DataPreparationPlan;
-    originalSample: CsvRow[];
-    transformedSample: CsvRow[];
     isVisible: boolean;
-    onToggleVisibility: () => void;
 }
 
 const ChevronIcon: React.FC<{ isOpen: boolean }> = ({ isOpen }) => (
@@ -23,7 +20,16 @@ const CodeIcon: React.FC = () => (
 );
 
 
-export const DataPrepDebugPanel: React.FC<DataPrepDebugPanelProps> = ({ plan, originalSample, transformedSample, isVisible, onToggleVisibility }) => {
+export const DataPrepDebugPanel: React.FC<DataPrepDebugPanelProps> = ({ isVisible }) => {
+    const { plan, originalSample, transformedSample } = useAppStore(state => ({
+        plan: state.dataPreparationPlan,
+        originalSample: state.initialDataSample,
+        transformedSample: state.csvData?.data.slice(0, 20) || [],
+    }));
+    const onToggleVisibility = () => useAppStore.getState().setIsDataPrepDebugVisible(!isVisible);
+
+    if (!plan || !originalSample) return null;
+
     return (
         <div className="bg-white rounded-lg shadow-lg flex flex-col transition-all duration-300 border border-slate-200">
             <button
