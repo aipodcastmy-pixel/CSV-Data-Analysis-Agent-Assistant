@@ -1,4 +1,3 @@
-
 import { CsvData, ColumnProfile, Settings, AnalysisPlan, CsvRow, AggregationType } from '../../types';
 import { callGemini, callOpenAI, robustlyParseJsonArray } from './apiClient';
 import { planSchema } from './schemas';
@@ -8,17 +7,27 @@ import { executePlan } from '../../utils/dataProcessor';
 const ALLOWED_AGGREGATIONS: Set<AggregationType> = new Set(['sum', 'count', 'avg']);
 
 // Helper to validate a plan object from the AI
-const isValidPlan = (plan: any): plan is AnalysisPlan => {
+export const isValidPlan = (plan: any): plan is AnalysisPlan => {
     if (!plan || typeof plan !== 'object' || !plan.chartType || !plan.title) {
         console.warn('Skipping invalid plan: missing chartType or title.', plan);
         return false;
     }
+
     if (plan.chartType === 'scatter') {
         if (!plan.xValueColumn || !plan.yValueColumn) {
             console.warn('Skipping invalid scatter plot plan: missing xValueColumn or yValueColumn.', plan);
             return false;
         }
-    } else {
+    } else if (plan.chartType === 'combo') {
+        if (!plan.groupByColumn || !plan.valueColumn || !plan.aggregation || !plan.secondaryValueColumn || !plan.secondaryAggregation) {
+            console.warn('Skipping invalid combo chart plan: missing required aggregation fields.', plan);
+            return false;
+        }
+        if (!ALLOWED_AGGREGATIONS.has(plan.aggregation) || !ALLOWED_AGGREGATIONS.has(plan.secondaryAggregation)) {
+            console.warn(`Skipping invalid combo plan: unsupported aggregation type.`, plan);
+            return false;
+        }
+    } else { // bar, line, pie, doughnut
         if (!plan.aggregation || !plan.groupByColumn) {
             console.warn(`Skipping invalid plan: missing aggregation or groupByColumn for chart type ${plan.chartType}.`, plan);
             return false;

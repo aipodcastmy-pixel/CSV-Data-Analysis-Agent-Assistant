@@ -379,15 +379,17 @@ export const executePlan = (data: CsvData, plan: AnalysisPlan): CsvRow[] => {
             }
         });
 
-        const aggregatedResult: CsvRow[] = Object.keys(groups).map(key => {
-            const primaryResult = calculateAggregation(groups[key].primaryValues, aggregation);
-            const secondaryResult = calculateAggregation(groups[key].secondaryValues, secondaryAggregation);
-            return {
-                [groupByColumn]: key,
-                [valueColumn]: primaryResult,
-                [secondaryValueColumn]: secondaryResult,
-            };
-        });
+        const aggregatedResult: CsvRow[] = Object.keys(groups)
+            .filter(key => groups[key].primaryValues.length > 0 || groups[key].secondaryValues.length > 0)
+            .map(key => {
+                const primaryResult = calculateAggregation(groups[key].primaryValues, aggregation);
+                const secondaryResult = calculateAggregation(groups[key].secondaryValues, secondaryAggregation);
+                return {
+                    [groupByColumn]: key,
+                    [valueColumn]: primaryResult,
+                    [secondaryValueColumn]: secondaryResult,
+                };
+            });
         
         const chronologicallySorted = tryChronologicalSort(aggregatedResult, groupByColumn);
         return chronologicallySorted || aggregatedResult.sort((a, b) => (Number(b[valueColumn]) || 0) - (Number(a[valueColumn]) || 0));
@@ -420,14 +422,16 @@ export const executePlan = (data: CsvData, plan: AnalysisPlan): CsvRow[] => {
         }
     });
 
-    const aggregatedResult: CsvRow[] = Object.keys(groups).map(key => {
-        const resultValue = calculateAggregation(groups[key], aggregation);
-        const finalValueColumn = valueColumn || 'count';
-        return {
-            [groupByColumn]: key,
-            [finalValueColumn]: resultValue,
-        };
-    });
+    const aggregatedResult: CsvRow[] = Object.keys(groups)
+        .filter(key => groups[key].length > 0)
+        .map(key => {
+            const resultValue = calculateAggregation(groups[key], aggregation);
+            const finalValueColumn = valueColumn || 'count';
+            return {
+                [groupByColumn]: key,
+                [finalValueColumn]: resultValue,
+            };
+        });
     
     // Intelligent Sorting:
     // 1. Try to sort chronologically for time-based categories (Quarters, Months, Dates).

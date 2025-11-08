@@ -246,7 +246,11 @@ export const createChatPrompt = (
         **Your Available Actions & Tools:**
         You MUST respond by creating a sequence of one or more actions in a JSON object.
         1.  **text_response**: For conversation. If your text explains a specific card, you MUST include its 'cardId'.
-        2.  **plan_creation**: To create a NEW chart. Use a 'defaultTopN' of 8 for readability on high-cardinality columns.
+        2.  **plan_creation**: To create a NEW chart.
+            - **CRITICAL**: For any chart type other than 'scatter', you MUST provide 'groupByColumn' and 'aggregation'.
+            - **CRITICAL**: For 'scatter' charts, you MUST provide 'xValueColumn' and 'yValueColumn', and you must NOT provide 'groupByColumn' or 'aggregation'.
+            - **CRITICAL**: For 'combo' charts, you MUST provide all fields: 'groupByColumn', 'valueColumn', 'aggregation', 'secondaryValueColumn', and 'secondaryAggregation'.
+            - Use a 'defaultTopN' of 8 for readability on high-cardinality columns.
         3.  **dom_action**: To INTERACT with an EXISTING card ('highlightCard', 'changeCardChartType', 'showCardData', 'filterCard').
         4.  **execute_js_code**: For PERMANENT data transformations (creating new columns, deleting rows). This action WILL modify the main dataset and cause ALL charts to regenerate. Use it for requests like "Remove all data from the USA".
         5.  **filter_spreadsheet**: For TEMPORARY, exploratory filtering of the Raw Data Explorer view. This action does NOT modify the main dataset and does NOT affect the analysis cards. Use it for requests like "show me record ORD1001" or "find all entries for Hannah".

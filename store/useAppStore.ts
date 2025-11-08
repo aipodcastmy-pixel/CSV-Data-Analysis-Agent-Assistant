@@ -6,6 +6,7 @@ import { processCsv, profileData, executePlan, executeJavaScriptDataTransform } 
 import { generateAnalysisPlans, generateSummary, generateFinalSummary, generateChatResponse, generateDataPreparationPlan, generateCoreAnalysisSummary, generateProactiveInsights, generateFilterFunction } from '../services/aiService';
 import { getReportsList, saveReport, getReport, deleteReport, getSettings, saveSettings, CURRENT_SESSION_KEY } from '../storageService';
 import { vectorStore } from '../services/vectorStore';
+import { isValidPlan } from '../services/ai/planGenerator';
 
 const MIN_ASIDE_WIDTH = 320;
 const MAX_ASIDE_WIDTH = 800;
@@ -461,7 +462,14 @@ export const useAppStore = create<StoreState & StoreActions>((set, get) => ({
                         break;
                     case 'plan_creation':
                         if (action.plan && get().csvData) {
-                            await get().runAnalysisPipeline([action.plan], get().csvData!, true);
+                            if (isValidPlan(action.plan)) {
+                                await get().runAnalysisPipeline([action.plan], get().csvData!, true);
+                            } else {
+                                const errorMessage = `The AI generated an incomplete analysis plan for "${action.plan.title || 'a new chart'}". Please try rephrasing your request.`;
+                                get().addProgress(errorMessage, 'error');
+                                const aiMessage: ChatMessage = { sender: 'ai', text: errorMessage, timestamp: new Date(), type: 'ai_message', isError: true };
+                                set(prev => ({ chatHistory: [...prev.chatHistory, aiMessage] }));
+                            }
                         }
                         break;
                     case 'dom_action':
@@ -519,8 +527,6 @@ export const useAppStore = create<StoreState & StoreActions>((set, get) => ({
     handleClarificationResponse: async (userChoice) => {
         const { pendingClarification, csvData } = get();
         if (!pendingClarification || !csvData) return;
-
-        console.log('[DEBUG] AI Clarification Pending Plan:', JSON.stringify(pendingClarification, null, 2));
     
         const userResponseMessage: ChatMessage = {
             sender: 'user',
@@ -537,13 +543,79 @@ export const useAppStore = create<StoreState & StoreActions>((set, get) => ({
         try {
             const { pendingPlan, targetProperty } = pendingClarification;
             
-            const completedPlan = {
+            // FIX: Reconstruct the plan object in a way that is more friendly to TypeScript's type inference.
+            // The issue is that assigning a string `userChoice.value` to a computed property `[targetProperty]`
+            // which could be a number or boolean field in AnalysisPlan creates a type that TypeScript
+            // may resolve to `never` when cast directly to `AnalysisPlan`.
+            // By building it as a Partial and using a type assertion for the dynamic assignment, we avoid this.
+            const completedPlan: Partial<AnalysisPlan> = {
                 ...pendingPlan,
-                [targetProperty]: userChoice.value,
-            } as AnalysisPlan;
-
-            console.log('[DEBUG] Plan after user clarification:', JSON.stringify(completedPlan, null, 2));
+            };
+    
+            // Here we assume the value from the user is of the correct type or can be coerced.
+            // The clarification logic in the app is primarily for string-based column selections,
+            // so this is a reasonable assumption.
+            (completedPlan as any)[targetProperty] = userChoice.value;
             
+            // Make the plan more robust by adding defaults if the AI omits them.
+            if (!completedPlan.aggregation) {
+                completedPlan.aggregation = completedPlan.valueColumn ? 'sum' : 'count';
+            }
+            if (!completedPlan.chartType) {
+                completedPlan.chartType = 'bar';
+            }
+
+            // Clean up extraneous properties based on chart type to prevent conflicts.
+            if (completedPlan.chartType !== 'scatter') {
+                delete (completedPlan as any).xValueColumn;
+                delete (completedPlan as any).yValueColumn;
+            }
+            if (completedPlan.chartType !== 'combo') {
+                delete (completedPlan as any).secondaryValueColumn;
+                delete (completedPlan as any).secondaryAggregation;
+            }
+
+            // If groupByColumn is still missing for a non-scatter chart, try to infer it.
+            if (!completedPlan.groupByColumn && completedPlan.chartType !== 'scatter') {
+                const { columnProfiles } = get();
+                const allColumnNames = columnProfiles.map(p => p.name);
+                let inferredGroupBy: string | null = null;
+    
+                // New, smarter inference: Try to find a column name mentioned in the user's selected label.
+                // e.g., label "Best Product Category by Revenue" contains column "Product Category"
+                // We sort column names by length descending to match longer names first (e.g., "Product Category" before "Product").
+                const sortedColumnNames = [...allColumnNames].sort((a, b) => b.length - a.length);
+    
+                for (const colName of sortedColumnNames) {
+                    // Prepare for case-insensitive comparison, also handle underscores vs spaces.
+                    const formattedColName = colName.toLowerCase().replace(/_/g, ' ');
+                    if (userChoice.label.toLowerCase().includes(formattedColName)) {
+                        inferredGroupBy = colName;
+                        break; // Found the best match, use it.
+                    }
+                }
+    
+                if (inferredGroupBy) {
+                    completedPlan.groupByColumn = inferredGroupBy;
+                    get().addProgress(`AI inferred grouping by "${inferredGroupBy}" based on your selection.`);
+                } else {
+                    // Original fallback logic if the new inference fails.
+                    const suitableColumns = columnProfiles.filter(p => 
+                        p.type === 'categorical' && 
+                        (p.uniqueValues || 0) < csvData.data.length && 
+                        (p.uniqueValues || 0) > 1
+                    );
+    
+                    if (suitableColumns.length > 0) {
+                        // Heuristic: pick the one with the fewest unique values (but more than 1).
+                        suitableColumns.sort((a, b) => (a.uniqueValues || Infinity) - (b.uniqueValues || Infinity));
+                        completedPlan.groupByColumn = suitableColumns[0].name;
+                        get().addProgress(`AI inferred grouping by "${suitableColumns[0].name}" as a fallback.`);
+                    }
+                }
+            }
+
+
             if (!completedPlan.title) completedPlan.title = `Analysis of ${userChoice.label}`;
             if (!completedPlan.description) completedPlan.description = `A chart showing an analysis of ${userChoice.label}.`;
     
@@ -552,10 +624,14 @@ export const useAppStore = create<StoreState & StoreActions>((set, get) => ({
                  throw new Error(`The clarified plan is still missing required fields like ${missingFields.join(', ')}.`);
             }
     
-            const planMessage: ChatMessage = { sender: 'ai', text: `Okay, creating a chart for "${completedPlan.title}".`, timestamp: new Date(), type: 'ai_plan_start' };
-            set(prev => ({ chatHistory: [...prev.chatHistory, planMessage] }));
-    
-            await get().runAnalysisPipeline([completedPlan], csvData, true);
+            const createdCards = await get().runAnalysisPipeline([completedPlan as AnalysisPlan], csvData, true);
+
+            // Only add the "Okay, creating..." message if a card was actually created.
+            // The "Skipping..." message will be added inside runAnalysisPipeline if no cards are made.
+            if (createdCards.length > 0) {
+                 const planMessage: ChatMessage = { sender: 'ai', text: `Okay, creating a chart for "${completedPlan.title}".`, timestamp: new Date(), type: 'ai_plan_start' };
+                 set(prev => ({ chatHistory: [...prev.chatHistory, planMessage] }));
+            }
     
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
