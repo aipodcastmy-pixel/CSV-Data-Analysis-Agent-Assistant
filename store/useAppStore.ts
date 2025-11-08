@@ -1,9 +1,10 @@
+
 import { create } from 'zustand';
 // Fix: Import MouseEvent from React and alias it to resolve the type error.
 import type { MouseEvent as ReactMouseEvent } from 'react';
 import { AnalysisCardData, ChatMessage, ProgressMessage, CsvData, AnalysisPlan, AppState, ColumnProfile, AiAction, CardContext, ChartType, DomAction, Settings, Report, ReportListItem, AppView, CsvRow, DataPreparationPlan } from '../types';
 import { processCsv, profileData, executePlan, executeJavaScriptDataTransform } from '../utils/dataProcessor';
-import { generateAnalysisPlans, generateSummary, generateFinalSummary, generateChatResponse, generateDataPreparationPlan, generateCoreAnalysisSummary, generateProactiveInsights } from '../services/geminiService';
+import { generateAnalysisPlans, generateSummary, generateFinalSummary, generateChatResponse, generateDataPreparationPlan, generateCoreAnalysisSummary, generateProactiveInsights } from '../services/aiService';
 import { getReportsList, saveReport, getReport, deleteReport, getSettings, saveSettings, CURRENT_SESSION_KEY } from '../storageService';
 import { vectorStore } from '../services/vectorStore';
 
