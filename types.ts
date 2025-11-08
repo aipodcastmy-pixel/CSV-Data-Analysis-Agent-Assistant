@@ -66,7 +66,8 @@ export interface ClarificationRequest {
     // The plan that is waiting for the user's input.
     pendingPlan: PendingPlan;
     // We need to know which property of the plan the user's choice will fill.
-    targetProperty: keyof AnalysisPlan;
+    // FIX: Allow 'merge' as a valid value for targetProperty to support merging plan fragments.
+    targetProperty: keyof AnalysisPlan | 'merge';
 }
 
 export interface ChatMessage {

@@ -463,7 +463,24 @@ export const useAppStore = create<StoreState & StoreActions>((set, get) => ({
                     case 'plan_creation':
                         if (action.plan && get().csvData) {
                             if (isValidPlan(action.plan)) {
-                                await get().runAnalysisPipeline([action.plan], get().csvData!, true);
+                                const planMessage: ChatMessage = { sender: 'ai', text: `Okay, creating a chart for "${action.plan.title}".`, timestamp: new Date(), type: 'ai_plan_start' };
+                                set(prev => ({ chatHistory: [...prev.chatHistory, planMessage] }));
+
+                                const createdCards = await get().runAnalysisPipeline([action.plan], get().csvData!, true);
+                                
+                                if (createdCards.length > 0) {
+                                    const summaryMessages: ChatMessage[] = createdCards.map(card => {
+                                        const englishSummary = card.summary.split('---')[0]?.trim();
+                                        return {
+                                            sender: 'ai',
+                                            text: englishSummary || 'Here is the new chart you requested.',
+                                            timestamp: new Date(),
+                                            type: 'ai_message',
+                                            cardId: card.id,
+                                        };
+                                    });
+                                    set(prev => ({ chatHistory: [...prev.chatHistory, ...summaryMessages] }));
+                                }
                             } else {
                                 const errorMessage = `The AI generated an incomplete analysis plan for "${action.plan.title || 'a new chart'}". Please try rephrasing your request.`;
                                 get().addProgress(errorMessage, 'error');
@@ -541,21 +558,34 @@ export const useAppStore = create<StoreState & StoreActions>((set, get) => ({
         }));
     
         try {
+            // FIX: Refactor logic to correctly narrow the type of `targetProperty` and prevent type errors.
             const { pendingPlan, targetProperty } = pendingClarification;
             
-            // FIX: Reconstruct the plan object in a way that is more friendly to TypeScript's type inference.
-            // The issue is that assigning a string `userChoice.value` to a computed property `[targetProperty]`
-            // which could be a number or boolean field in AnalysisPlan creates a type that TypeScript
-            // may resolve to `never` when cast directly to `AnalysisPlan`.
-            // By building it as a Partial and using a type assertion for the dynamic assignment, we avoid this.
-            const completedPlan: Partial<AnalysisPlan> = {
-                ...pendingPlan,
-            };
-    
-            // Here we assume the value from the user is of the correct type or can be coerced.
-            // The clarification logic in the app is primarily for string-based column selections,
-            // so this is a reasonable assumption.
-            (completedPlan as any)[targetProperty] = userChoice.value;
+            let completedPlan: Partial<AnalysisPlan>;
+
+            if (targetProperty === 'merge') {
+                if (!userChoice.value.startsWith('{')) {
+                    throw new Error("Invalid clarification response from AI: expected a JSON string for a 'merge' operation but did not receive one.");
+                }
+                try {
+                    const planFragment = JSON.parse(userChoice.value);
+                    completedPlan = { ...pendingPlan, ...planFragment };
+                } catch (e) {
+                    console.error("Failed to parse clarification option value as JSON", e);
+                    throw new Error("The AI provided an invalid clarification option. Please try again.");
+                }
+            } else {
+                // In this branch, TypeScript knows targetProperty is of type `keyof AnalysisPlan`.
+                const intermediatePlan: Partial<AnalysisPlan> = {
+                    ...pendingPlan,
+                    [targetProperty]: userChoice.value,
+                };
+                completedPlan = intermediatePlan;
+            }
+
+            // Unconditionally update title and description to match the user's explicit choice.
+            completedPlan.title = userChoice.label;
+            completedPlan.description = `A chart showing an analysis of ${userChoice.label}.`;
             
             // Make the plan more robust by adding defaults if the AI omits them.
             if (!completedPlan.aggregation) {
@@ -581,17 +611,13 @@ export const useAppStore = create<StoreState & StoreActions>((set, get) => ({
                 const allColumnNames = columnProfiles.map(p => p.name);
                 let inferredGroupBy: string | null = null;
     
-                // New, smarter inference: Try to find a column name mentioned in the user's selected label.
-                // e.g., label "Best Product Category by Revenue" contains column "Product Category"
-                // We sort column names by length descending to match longer names first (e.g., "Product Category" before "Product").
                 const sortedColumnNames = [...allColumnNames].sort((a, b) => b.length - a.length);
     
                 for (const colName of sortedColumnNames) {
-                    // Prepare for case-insensitive comparison, also handle underscores vs spaces.
                     const formattedColName = colName.toLowerCase().replace(/_/g, ' ');
                     if (userChoice.label.toLowerCase().includes(formattedColName)) {
                         inferredGroupBy = colName;
-                        break; // Found the best match, use it.
+                        break;
                     }
                 }
     
@@ -599,7 +625,6 @@ export const useAppStore = create<StoreState & StoreActions>((set, get) => ({
                     completedPlan.groupByColumn = inferredGroupBy;
                     get().addProgress(`AI inferred grouping by "${inferredGroupBy}" based on your selection.`);
                 } else {
-                    // Original fallback logic if the new inference fails.
                     const suitableColumns = columnProfiles.filter(p => 
                         p.type === 'categorical' && 
                         (p.uniqueValues || 0) < csvData.data.length && 
@@ -607,7 +632,6 @@ export const useAppStore = create<StoreState & StoreActions>((set, get) => ({
                     );
     
                     if (suitableColumns.length > 0) {
-                        // Heuristic: pick the one with the fewest unique values (but more than 1).
                         suitableColumns.sort((a, b) => (a.uniqueValues || Infinity) - (b.uniqueValues || Infinity));
                         completedPlan.groupByColumn = suitableColumns[0].name;
                         get().addProgress(`AI inferred grouping by "${suitableColumns[0].name}" as a fallback.`);
@@ -616,21 +640,28 @@ export const useAppStore = create<StoreState & StoreActions>((set, get) => ({
             }
 
 
-            if (!completedPlan.title) completedPlan.title = `Analysis of ${userChoice.label}`;
-            if (!completedPlan.description) completedPlan.description = `A chart showing an analysis of ${userChoice.label}.`;
-    
             if (completedPlan.chartType !== 'scatter' && (!completedPlan.chartType || !completedPlan.groupByColumn || !completedPlan.aggregation)) {
                  const missingFields = ['chartType', 'groupByColumn', 'aggregation'].filter(f => !(completedPlan as any)[f]);
                  throw new Error(`The clarified plan is still missing required fields like ${missingFields.join(', ')}.`);
             }
     
+            const planMessage: ChatMessage = { sender: 'ai', text: `Okay, creating a chart for "${completedPlan.title}".`, timestamp: new Date(), type: 'ai_plan_start' };
+            set(prev => ({ chatHistory: [...prev.chatHistory, planMessage] }));
+
             const createdCards = await get().runAnalysisPipeline([completedPlan as AnalysisPlan], csvData, true);
 
-            // Only add the "Okay, creating..." message if a card was actually created.
-            // The "Skipping..." message will be added inside runAnalysisPipeline if no cards are made.
             if (createdCards.length > 0) {
-                 const planMessage: ChatMessage = { sender: 'ai', text: `Okay, creating a chart for "${completedPlan.title}".`, timestamp: new Date(), type: 'ai_plan_start' };
-                 set(prev => ({ chatHistory: [...prev.chatHistory, planMessage] }));
+                const summaryMessages: ChatMessage[] = createdCards.map(card => {
+                    const englishSummary = card.summary.split('---')[0]?.trim();
+                    return {
+                        sender: 'ai',
+                        text: englishSummary || 'Here is the new chart you requested.',
+                        timestamp: new Date(),
+                        type: 'ai_message',
+                        cardId: card.id,
+                    };
+                });
+                set(prev => ({ chatHistory: [...prev.chatHistory, ...summaryMessages] }));
             }
     
         } catch (error) {

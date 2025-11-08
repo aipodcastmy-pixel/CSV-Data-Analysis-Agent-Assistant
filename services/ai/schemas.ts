@@ -125,7 +125,7 @@ const clarificationRequestSchema = {
         },
         targetProperty: {
             type: Type.STRING,
-            description: "The name of the property in the 'pendingPlan' that the user's selected value should be assigned to."
+            description: "The name of the property in the 'pendingPlan' that the user's selected value should be assigned to. Use 'merge' if the option 'value' is a JSON string of a partial plan to be merged."
         }
     },
     required: ['question', 'options', 'pendingPlan', 'targetProperty']

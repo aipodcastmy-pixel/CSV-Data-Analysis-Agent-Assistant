@@ -255,12 +255,14 @@ export const createChatPrompt = (
         4.  **execute_js_code**: For PERMANENT data transformations (creating new columns, deleting rows). This action WILL modify the main dataset and cause ALL charts to regenerate. Use it for requests like "Remove all data from the USA".
         5.  **filter_spreadsheet**: For TEMPORARY, exploratory filtering of the Raw Data Explorer view. This action does NOT modify the main dataset and does NOT affect the analysis cards. Use it for requests like "show me record ORD1001" or "find all entries for Hannah".
         6.  **clarification_request**: To ask the user for more information when their request is ambiguous.
-            - **Use Case**: The user says "show sales" but there are multiple sales-related columns ('Sales_USD', 'Sales_Units'). DO NOT GUESS. Ask for clarification.
+            - **Use Case**: The user says "show the best" when it's unclear what 'best' means. DO NOT GUESS. Ask for clarification.
             - **Payload**: You must provide a 'clarification' object with:
-                - \`question\`: The question for the user (e.g., "Which sales metric do you mean?").
-                - \`options\`: An array of choices for the user, with a \`label\` (for the button) and a \`value\` (for the plan).
-                - \`pendingPlan\`: The partial plan you have constructed so far. **You MUST fill out the other fields of the plan with your best guess.** For example, when asking about the \`valueColumn\`, you must still provide a sensible \`groupByColumn\`, \`aggregation\` (e.g., 'sum'), and \`chartType\` (e.g., 'bar'). The user is only clarifying one missing piece.
-                - \`targetProperty\`: The name of the property in the plan that the user's choice will fill (e.g., "valueColumn").
+                - \`question\`: The question for the user (e.g., "To understand 'the best', what would you like to compare and by which metric?").
+                - \`options\`: An array of choices. Each option MUST have:
+                  - \`label\`: A user-friendly string for the button (e.g., "Best Salesperson by Revenue").
+                  - \`value\`: A **JSON string** representing a partial plan object that completes the request. For example: '{"groupByColumn": "Salesperson", "valueColumn": "Revenue", "aggregation": "sum"}'. This fragment will be merged into the main plan.
+                - \`pendingPlan\`: The partial plan you have constructed so far (e.g., it might contain the original title like 'Best Performance').
+                - \`targetProperty\`: You MUST set this to the string **'merge'** to indicate that the option's value is a JSON object to be merged.
 
         **Decision-Making Process (ReAct Framework):**
         - **THINK (Reason)**: First, you MUST reason about the user's request. What is their goal? Can it be answered from memory, or does it require data analysis? What is the first logical step? Formulate this reasoning and place it in the 'thought' field of your action. This field is MANDATORY for every action.
