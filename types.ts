@@ -84,6 +84,8 @@ export interface AppState {
     dataPreparationPlan: DataPreparationPlan | null; // The plan used to clean the data
     initialDataSample: CsvRow[] | null; // Snapshot of raw data for debug view
     vectorStoreDocuments: VectorStoreDocument[]; // For persisting AI memory
+    spreadsheetFilterFunction: string | null; // For AI-powered spreadsheet filtering
+    aiFilterExplanation: string | null; // Explanation for the AI filter
 }
 
 export interface DomAction {
@@ -93,7 +95,7 @@ export interface DomAction {
 
 export interface AiAction {
   thought?: string; // The AI's reasoning for this action (ReAct pattern).
-  responseType: 'plan_creation' | 'text_response' | 'dom_action' | 'execute_js_code' | 'proceed_to_analysis';
+  responseType: 'plan_creation' | 'text_response' | 'dom_action' | 'execute_js_code' | 'proceed_to_analysis' | 'filter_spreadsheet';
   plan?: AnalysisPlan;
   text?: string;
   cardId?: string; // For text_response, the ID of the card being discussed
@@ -101,6 +103,9 @@ export interface AiAction {
   code?: {
     explanation: string;
     jsFunctionBody: string;
+  };
+  args?: { // For actions like filter_spreadsheet
+    query: string;
   };
 }
 
@@ -150,4 +155,10 @@ export interface VectorStoreDocument {
 export interface SortConfig {
     key: string;
     direction: 'ascending' | 'descending';
+}
+
+// For AI spreadsheet filtering
+export interface AiFilterResponse {
+    explanation: string;
+    jsFunctionBody: string;
 }

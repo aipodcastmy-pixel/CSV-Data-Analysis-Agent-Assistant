@@ -264,25 +264,25 @@ const splitNumericString = (input: string | null | undefined): string[] => {
     return parsableString.split('|');
 };
 
+const createUtilObject = () => ({
+    /**
+     * Safely parses a string into a number, handling currency symbols, commas, and percentages.
+     * Returns null if parsing is not possible.
+     * @param value The value to parse.
+     * @returns A number or null.
+     */
+    parseNumber: robustParseFloat,
+    /**
+     * Safely splits a string containing multiple comma-separated numbers, where the numbers themselves may also contain commas as thousand separators.
+     * @param value The string to split.
+     * @returns An array of strings, each representing one number.
+     */
+    splitNumericString: splitNumericString,
+});
+
 export const executeJavaScriptDataTransform = (data: CsvRow[], jsFunctionBody: string): CsvRow[] => {
     try {
-        // Create a utility object to be exposed to the AI's code.
-        const _util = {
-            /**
-             * Safely parses a string into a number, handling currency symbols, commas, and percentages.
-             * Returns null if parsing is not possible.
-             * @param value The value to parse.
-             * @returns A number or null.
-             */
-            parseNumber: robustParseFloat,
-            /**
-             * Safely splits a string containing multiple comma-separated numbers, where the numbers themselves may also contain commas as thousand separators.
-             * @param value The string to split.
-             * @returns An array of strings, each representing one number.
-             */
-            splitNumericString: splitNumericString,
-        };
-
+        const _util = createUtilObject();
         const transformFunction = new Function('data', '_util', jsFunctionBody);
         const result = transformFunction(data, _util);
         
@@ -304,6 +304,23 @@ export const executeJavaScriptDataTransform = (data: CsvRow[], jsFunctionBody: s
         throw new Error(`AI-generated data transformation failed: ${error instanceof Error ? error.message : String(error)}`);
     }
 }
+
+export const executeJavaScriptFilter = (data: CsvRow[], jsFunctionBody: string): CsvRow[] => {
+    try {
+        const _util = createUtilObject();
+        const filterFunction = new Function('data', '_util', jsFunctionBody);
+        const result = filterFunction(data, _util);
+
+        if (!Array.isArray(result)) {
+            throw new Error('AI-generated filter function did not return an array.');
+        }
+
+        return result as CsvRow[];
+    } catch (error) {
+        console.error("Error executing AI-generated JavaScript filter:", error);
+        throw new Error(`AI-generated data filter failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+};
 
 const calculateAggregation = (values: number[], aggregation: AggregationType): number => {
     if (values.length === 0) return 0;

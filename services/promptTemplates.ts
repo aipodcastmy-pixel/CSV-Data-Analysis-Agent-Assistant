@@ -54,6 +54,39 @@ export const createDataPreparationPrompt = (columns: ColumnProfile[], sampleData
     - outputColumns: [{'name': 'Product', 'type': 'categorical'}, {'name': 'DateStr', 'type': 'date'}, {'name': 'Revenue', 'type': 'currency'}]
 `;
 
+export const createFilterFunctionPrompt = (query: string, columns: ColumnProfile[], sampleData: CsvRow[]): string => `
+    You are an expert data analyst. Your task is to convert a user's natural language query into a JavaScript filter function body for a dataset.
+    
+    **User Query:** "${query}"
+    
+    **Dataset Columns (Schema):**
+    ${JSON.stringify(columns, null, 2)}
+    
+    **Sample Data (first 5 rows):**
+    ${JSON.stringify(sampleData, null, 2)}
+    
+    **CRITICAL Rules for Code Generation:**
+    ${commonRules.numberParsing}
+    - When comparing strings, convert both the data and the comparison value to the same case (e.g., lower case) using \`.toLowerCase()\` to ensure case-insensitive matching.
+    - For date comparisons, you can use \`new Date(row.date_column) > new Date('YYYY-MM-DD')\`.
+    - The function you write will be the body of a new Function that receives 'data' (the full array of objects) and '_util'.
+    - Your function body MUST start with \`return data.filter(row => ...);\`.
+    
+    **Your Task:**
+    1.  **Analyze Query:** Understand the user's intent. Identify columns, values, and operators (e.g., >, <, =, contains).
+    2.  **Write JS Code:** Write a single line of JavaScript that filters the data array.
+    3.  **Explain:** Briefly explain the filter you created in plain language.
+    
+    **Example:**
+    - User Query: "show me all rows where sales > 5000 and region is North America"
+    - Columns: [{ name: 'sales', type: 'currency' }, { name: 'region', type: 'categorical' }]
+    - Your Response (JSON):
+    {
+      "explanation": "Filtering for rows where 'sales' is greater than 5000 and 'region' is 'North America'.",
+      "jsFunctionBody": "return data.filter(row => _util.parseNumber(row.sales) > 5000 && row.region.toLowerCase() === 'north america');"
+    }
+`;
+
 export const createCandidatePlansPrompt = (categoricalCols: string[], numericalCols: string[], sampleData: CsvRow[], numPlans: number): string => `
     You are a senior business intelligence analyst specializing in ERP and financial data. Your task is to generate a diverse list of insightful analysis plan candidates for a given dataset by identifying common data patterns.
     
@@ -215,8 +248,9 @@ export const createChatPrompt = (
         1.  **text_response**: For conversation. If your text explains a specific card, you MUST include its 'cardId'.
         2.  **plan_creation**: To create a NEW chart. Use a 'defaultTopN' of 8 for readability on high-cardinality columns.
         3.  **dom_action**: To INTERACT with an EXISTING card ('highlightCard', 'changeCardChartType', 'showCardData', 'filterCard').
-        4.  **execute_js_code**: For COMPLEX TASKS like creating new columns or complex filtering.
-        5.  **proceed_to_analysis**: DEPRECATED.
+        4.  **execute_js_code**: For PERMANENT data transformations (creating new columns, deleting rows). This action WILL modify the main dataset and cause ALL charts to regenerate. Use it for requests like "Remove all data from the USA".
+        5.  **filter_spreadsheet**: For TEMPORARY, exploratory filtering of the Raw Data Explorer view. This action does NOT modify the main dataset and does NOT affect the analysis cards. Use it for requests like "show me record ORD1001" or "find all entries for Hannah".
+        6.  **proceed_to_analysis**: DEPRECATED.
 
         **Decision-Making Process (ReAct Framework):**
         - **THINK (Reason)**: First, you MUST reason about the user's request. What is their goal? Can it be answered from memory, or does it require data analysis? What is the first logical step? Formulate this reasoning and place it in the 'thought' field of your action. This field is MANDATORY for every action.

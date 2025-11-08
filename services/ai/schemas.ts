@@ -48,6 +48,18 @@ export const dataPreparationSchema = {
     required: ['explanation', 'outputColumns']
 };
 
+export const filterFunctionSchema = {
+    type: Type.OBJECT,
+    properties: {
+        explanation: { type: Type.STRING, description: "A brief, user-facing explanation of the filter that was created from the natural language query." },
+        jsFunctionBody: {
+            type: Type.STRING,
+            description: "The body of a JavaScript function that takes 'data' and '_util' as arguments and returns a filtered array of objects. It should be a single line starting with 'return data.filter(...);'."
+        },
+    },
+    required: ['explanation', 'jsFunctionBody']
+};
+
 export const proactiveInsightSchema = {
     type: Type.OBJECT,
     properties: {
@@ -86,7 +98,7 @@ export const multiActionChatResponseSchema = {
                 type: Type.OBJECT,
                 properties: {
                     thought: { type: Type.STRING, description: "The AI's reasoning or thought process before performing the action. This explains *why* this action is being taken. This is a mandatory part of the ReAct pattern." },
-                    responseType: { type: Type.STRING, enum: ['text_response', 'plan_creation', 'dom_action', 'execute_js_code', 'proceed_to_analysis'] },
+                    responseType: { type: Type.STRING, enum: ['text_response', 'plan_creation', 'dom_action', 'execute_js_code', 'proceed_to_analysis', 'filter_spreadsheet'] },
                     text: { type: Type.STRING, description: "A conversational text response to the user. Required for 'text_response'." },
                     cardId: { type: Type.STRING, description: "Optional. The ID of the card this text response refers to. Used to link text to a specific chart." },
                     plan: {
@@ -121,6 +133,13 @@ export const multiActionChatResponseSchema = {
                             jsFunctionBody: { type: Type.STRING, description: "The body of a JavaScript function that takes 'data' and returns the transformed 'data'." },
                         },
                         required: ['explanation', 'jsFunctionBody']
+                    },
+                    args: {
+                        type: Type.OBJECT,
+                        description: "Arguments for other tools, like 'filter_spreadsheet'.",
+                        properties: {
+                            query: { type: Type.STRING, description: "The natural language query to filter the spreadsheet by." },
+                        },
                     }
                 },
                 required: ['responseType', 'thought']

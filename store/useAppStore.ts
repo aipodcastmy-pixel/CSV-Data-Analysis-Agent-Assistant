@@ -1,10 +1,13 @@
 
+
+
+
 import { create } from 'zustand';
 // Fix: Import MouseEvent from React and alias it to resolve the type error.
 import type { MouseEvent as ReactMouseEvent } from 'react';
-import { AnalysisCardData, ChatMessage, ProgressMessage, CsvData, AnalysisPlan, AppState, ColumnProfile, AiAction, CardContext, ChartType, DomAction, Settings, Report, ReportListItem, AppView, CsvRow, DataPreparationPlan } from '../types';
+import { AnalysisCardData, ChatMessage, ProgressMessage, CsvData, AnalysisPlan, AppState, ColumnProfile, AiAction, CardContext, ChartType, DomAction, Settings, Report, ReportListItem, AppView, CsvRow, DataPreparationPlan, AiFilterResponse } from '../types';
 import { processCsv, profileData, executePlan, executeJavaScriptDataTransform } from '../utils/dataProcessor';
-import { generateAnalysisPlans, generateSummary, generateFinalSummary, generateChatResponse, generateDataPreparationPlan, generateCoreAnalysisSummary, generateProactiveInsights } from '../services/aiService';
+import { generateAnalysisPlans, generateSummary, generateFinalSummary, generateChatResponse, generateDataPreparationPlan, generateCoreAnalysisSummary, generateProactiveInsights, generateFilterFunction } from '../services/aiService';
 import { getReportsList, saveReport, getReport, deleteReport, getSettings, saveSettings, CURRENT_SESSION_KEY } from '../storageService';
 import { vectorStore } from '../services/vectorStore';
 
@@ -25,6 +28,8 @@ const initialAppState: AppState = {
     dataPreparationPlan: null,
     initialDataSample: null,
     vectorStoreDocuments: [],
+    spreadsheetFilterFunction: null,
+    aiFilterExplanation: null,
 };
 
 interface StoreState extends AppState {
@@ -35,6 +40,7 @@ interface StoreState extends AppState {
     isSettingsModalOpen: boolean;
     isHistoryPanelOpen: boolean;
     isMemoryPanelOpen: boolean;
+    isAiFiltering: boolean; // For spreadsheet AI filter loading state
     settings: Settings;
     reportsList: ReportListItem[];
     isResizing: boolean;
@@ -53,6 +59,8 @@ interface StoreActions {
     regenerateAnalyses: (newData: CsvData) => Promise<void>;
     executeDomAction: (action: DomAction) => void;
     handleChatMessage: (message: string) => Promise<void>;
+    handleNaturalLanguageQuery: (query: string) => Promise<void>;
+    clearAiFilter: () => void;
     handleChartTypeChange: (cardId: string, newType: ChartType) => void;
     handleToggleDataVisibility: (cardId: string) => void;
     handleTopNChange: (cardId: string, topN: number | null) => void;
@@ -82,6 +90,7 @@ export const useAppStore = create<StoreState & StoreActions>((set, get) => ({
     isSettingsModalOpen: false,
     isHistoryPanelOpen: false,
     isMemoryPanelOpen: false,
+    isAiFiltering: false,
     settings: getSettings(),
     reportsList: [],
     isResizing: false,
@@ -468,6 +477,17 @@ export const useAppStore = create<StoreState & StoreActions>((set, get) => ({
                             await get().regenerateAnalyses(newData);
                         }
                         break;
+                    case 'filter_spreadsheet':
+                        if (action.args?.query) {
+                            get().addProgress(`AI is filtering the data explorer based on your request.`);
+                            await get().handleNaturalLanguageQuery(action.args.query);
+                            set({ isSpreadsheetVisible: true });
+                            // Wait for the DOM to update before scrolling
+                            setTimeout(() => {
+                                document.getElementById('raw-data-explorer')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            }, 100);
+                        }
+                        break;
                 }
             }
         } catch(error) {
@@ -478,6 +498,41 @@ export const useAppStore = create<StoreState & StoreActions>((set, get) => ({
         } finally {
             set({ isBusy: false });
         }
+    },
+
+    handleNaturalLanguageQuery: async (query) => {
+        if (!get().isApiKeySet || !get().csvData) {
+            get().addProgress('Cannot perform AI query: API Key is not set or no data is loaded.', 'error');
+            return;
+        }
+
+        set({ isAiFiltering: true, spreadsheetFilterFunction: null, aiFilterExplanation: null });
+        get().addProgress(`AI is processing your data query: "${query}"...`);
+
+        try {
+            const response: AiFilterResponse = await generateFilterFunction(
+                query,
+                get().columnProfiles,
+                get().csvData!.data.slice(0, 5),
+                get().settings
+            );
+
+            set({
+                spreadsheetFilterFunction: response.jsFunctionBody,
+                aiFilterExplanation: response.explanation,
+            });
+            get().addProgress(`AI filter applied: ${response.explanation}`);
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            get().addProgress(`AI query failed: ${errorMessage}`, 'error');
+        } finally {
+            set({ isAiFiltering: false });
+        }
+    },
+
+    clearAiFilter: () => {
+        set({ spreadsheetFilterFunction: null, aiFilterExplanation: null });
+        get().addProgress('AI data filter cleared.');
     },
     
     handleChartTypeChange: (cardId, newType) => {
@@ -590,6 +645,8 @@ setInterval(async () => {
             dataPreparationPlan: state.dataPreparationPlan,
             initialDataSample: state.initialDataSample,
             vectorStoreDocuments: vectorStore.getDocuments(),
+            spreadsheetFilterFunction: state.spreadsheetFilterFunction,
+            aiFilterExplanation: state.aiFilterExplanation,
         };
 
         const currentReport: Report = {
