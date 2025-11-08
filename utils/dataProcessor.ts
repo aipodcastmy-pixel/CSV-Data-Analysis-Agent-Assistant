@@ -305,6 +305,20 @@ export const executeJavaScriptDataTransform = (data: CsvRow[], jsFunctionBody: s
     }
 }
 
+const calculateAggregation = (values: number[], aggregation: AggregationType): number => {
+    if (values.length === 0) return 0;
+    switch (aggregation) {
+        case 'sum':
+            return values.reduce((acc, val) => acc + val, 0);
+        case 'count':
+            return values.length;
+        case 'avg':
+            const sum = values.reduce((acc, val) => acc + val, 0);
+            return sum / values.length;
+        default:
+             throw new Error(`Unsupported aggregation type: ${aggregation}`);
+    }
+}
 
 export const executePlan = (data: CsvData, plan: AnalysisPlan): CsvRow[] => {
     // Handle scatter plots separately as they don't aggregate data
@@ -320,6 +334,48 @@ export const executePlan = (data: CsvData, plan: AnalysisPlan): CsvRow[] => {
             }))
             .filter(p => p[xValueColumn] !== null && p[yValueColumn] !== null) as CsvRow[];
     }
+    
+    if (plan.chartType === 'combo') {
+        const { groupByColumn, valueColumn, aggregation, secondaryValueColumn, secondaryAggregation } = plan;
+        if (!groupByColumn || !valueColumn || !aggregation || !secondaryValueColumn || !secondaryAggregation) {
+             throw new Error("Combo chart plan is missing required aggregation fields.");
+        }
+        
+        const groups: { [key: string]: { primaryValues: number[], secondaryValues: number[] } } = {};
+        
+        data.data.forEach(row => {
+            const groupKey = String(row[groupByColumn]);
+            if (groupKey === 'undefined' || groupKey === 'null') return;
+            
+            if (!groups[groupKey]) {
+                groups[groupKey] = { primaryValues: [], secondaryValues: [] };
+            }
+
+            const primaryValue = robustParseFloat(row[valueColumn]);
+            if (primaryValue !== null) {
+                groups[groupKey].primaryValues.push(primaryValue);
+            }
+            
+            const secondaryValue = robustParseFloat(row[secondaryValueColumn]);
+            if (secondaryValue !== null) {
+                groups[groupKey].secondaryValues.push(secondaryValue);
+            }
+        });
+
+        const aggregatedResult: CsvRow[] = Object.keys(groups).map(key => {
+            const primaryResult = calculateAggregation(groups[key].primaryValues, aggregation);
+            const secondaryResult = calculateAggregation(groups[key].secondaryValues, secondaryAggregation);
+            return {
+                [groupByColumn]: key,
+                [valueColumn]: primaryResult,
+                [secondaryValueColumn]: secondaryResult,
+            };
+        });
+        
+        const chronologicallySorted = tryChronologicalSort(aggregatedResult, groupByColumn);
+        return chronologicallySorted || aggregatedResult.sort((a, b) => (Number(b[valueColumn]) || 0) - (Number(a[valueColumn]) || 0));
+    }
+
 
     const { groupByColumn, valueColumn, aggregation } = plan;
     if (!groupByColumn || !aggregation) {
@@ -347,34 +403,14 @@ export const executePlan = (data: CsvData, plan: AnalysisPlan): CsvRow[] => {
         }
     });
 
-    const aggregatedResult: CsvRow[] = [];
-
-    for (const key in groups) {
-        const values = groups[key];
-        let resultValue: number;
-
-        switch (aggregation) {
-            case 'sum':
-                resultValue = values.reduce((acc, val) => acc + val, 0);
-                break;
-            case 'count':
-                resultValue = values.length;
-                break;
-            case 'avg':
-                const sum = values.reduce((acc, val) => acc + val, 0);
-                resultValue = values.length > 0 ? sum / values.length : 0;
-                break;
-            default:
-                throw new Error(`Unsupported aggregation type: ${aggregation}`);
-        }
-        
+    const aggregatedResult: CsvRow[] = Object.keys(groups).map(key => {
+        const resultValue = calculateAggregation(groups[key], aggregation);
         const finalValueColumn = valueColumn || 'count';
-
-        aggregatedResult.push({
+        return {
             [groupByColumn]: key,
             [finalValueColumn]: resultValue,
-        });
-    }
+        };
+    });
     
     // Intelligent Sorting:
     // 1. Try to sort chronologically for time-based categories (Quarters, Months, Dates).

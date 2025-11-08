@@ -1,4 +1,3 @@
-
 import { Type } from "@google/genai";
 
 export const planSchema = {
@@ -6,7 +5,7 @@ export const planSchema = {
   items: {
     type: Type.OBJECT,
     properties: {
-      chartType: { type: Type.STRING, enum: ['bar', 'line', 'pie', 'doughnut', 'scatter'], description: 'Type of chart to generate.' },
+      chartType: { type: Type.STRING, enum: ['bar', 'line', 'pie', 'doughnut', 'scatter', 'combo'], description: 'Type of chart to generate.' },
       title: { type: Type.STRING, description: 'A concise title for the analysis.' },
       description: { type: Type.STRING, description: 'A brief explanation of what the analysis shows.' },
       aggregation: { type: Type.STRING, enum: ['sum', 'count', 'avg'], description: 'The aggregation function to apply. Omit for scatter plots.' },
@@ -14,6 +13,8 @@ export const planSchema = {
       valueColumn: { type: Type.STRING, description: 'The column for aggregation (numerical). Not needed for "count".' },
       xValueColumn: { type: Type.STRING, description: 'The column for the X-axis of a scatter plot (numerical). Required for scatter plots.' },
       yValueColumn: { type: Type.STRING, description: 'The column for the Y-axis of a scatter plot (numerical). Required for scatter plots.' },
+      secondaryValueColumn: { type: Type.STRING, description: 'For combo charts, the secondary column for aggregation (numerical).' },
+      secondaryAggregation: { type: Type.STRING, enum: ['sum', 'count', 'avg'], description: 'For combo charts, the aggregation for the secondary value column.' },
       defaultTopN: { type: Type.INTEGER, description: 'Optional. If the analysis has many categories, this suggests a default Top N view (e.g., 8).' },
       defaultHideOthers: { type: Type.BOOLEAN, description: 'Optional. If using defaultTopN, suggests whether to hide the "Others" category by default.' },
     },
@@ -59,7 +60,7 @@ export const proactiveInsightSchema = {
 export const singlePlanSchema = {
     type: Type.OBJECT,
     properties: {
-      chartType: { type: Type.STRING, enum: ['bar', 'line', 'pie', 'doughnut', 'scatter'], description: 'Type of chart to generate.' },
+      chartType: { type: Type.STRING, enum: ['bar', 'line', 'pie', 'doughnut', 'scatter', 'combo'], description: 'Type of chart to generate.' },
       title: { type: Type.STRING, description: 'A concise title for the analysis.' },
       description: { type: Type.STRING, description: 'A brief explanation of what the analysis shows.' },
       aggregation: { type: Type.STRING, enum: ['sum', 'count', 'avg'], description: 'The aggregation function to apply. Omit for scatter plots.' },
@@ -67,6 +68,8 @@ export const singlePlanSchema = {
       valueColumn: { type: Type.STRING, description: 'The column for aggregation (numerical). Not needed for "count".' },
       xValueColumn: { type: Type.STRING, description: 'The column for the X-axis of a scatter plot (numerical). Required for scatter plots.' },
       yValueColumn: { type: Type.STRING, description: 'The column for the Y-axis of a scatter plot (numerical). Required for scatter plots.' },
+      secondaryValueColumn: { type: Type.STRING, description: 'For combo charts, the secondary column for aggregation (numerical).' },
+      secondaryAggregation: { type: Type.STRING, enum: ['sum', 'count', 'avg'], description: 'For combo charts, the aggregation for the secondary value column.' },
       defaultTopN: { type: Type.INTEGER, description: 'Optional. If the analysis has many categories, this suggests a default Top N view (e.g., 8).' },
       defaultHideOthers: { type: Type.BOOLEAN, description: 'Optional. If using defaultTopN, suggests whether to hide the "Others" category by default.' },
     },
@@ -100,7 +103,7 @@ export const multiActionChatResponseSchema = {
                                 description: 'Arguments for the tool. e.g., { cardId: "..." }',
                                 properties: {
                                     cardId: { type: Type.STRING, description: 'The ID of the target analysis card.' },
-                                    newType: { type: Type.STRING, enum: ['bar', 'line', 'pie', 'doughnut', 'scatter'], description: "For 'changeCardChartType'." },
+                                    newType: { type: Type.STRING, enum: ['bar', 'line', 'pie', 'doughnut', 'scatter', 'combo'], description: "For 'changeCardChartType'." },
                                     visible: { type: Type.BOOLEAN, description: "For 'showCardData'." },
                                     column: { type: Type.STRING, description: "For 'filterCard', the column to filter on." },
                                     values: { type: Type.ARRAY, items: { type: Type.STRING }, description: "For 'filterCard', the values to include." },

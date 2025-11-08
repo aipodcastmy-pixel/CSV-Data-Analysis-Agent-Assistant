@@ -238,6 +238,68 @@ export const ChartRenderer = forwardRef<ChartRendererHandle, ChartRendererProps>
                     }
                 });
                 break;
+            case 'combo':
+                if (!groupByColumn || !valueKey || !plan.secondaryValueColumn) break;
+                
+                const secondaryValueKey = plan.secondaryValueColumn;
+                const barValues = data.map(d => d[valueKey]);
+                const lineValues = data.map(d => d[secondaryValueKey]);
+
+                chartRef.current = new Chart(ctx, {
+                    type: 'bar', // Base type is bar
+                    data: {
+                        labels,
+                        datasets: [
+                            {
+                                type: 'bar',
+                                label: valueKey,
+                                data: barValues,
+                                backgroundColor: getColors(BG_COLORS),
+                                borderColor: getBorderColors(BORDER_COLORS),
+                                borderWidth: 1,
+                                yAxisID: 'y',
+                            },
+                            {
+                                type: 'line',
+                                label: secondaryValueKey,
+                                data: lineValues,
+                                fill: false,
+                                borderColor: hasSelection ? DESELECTED_BORDER_COLOR : COLORS[1],
+                                pointBackgroundColor: hasSelection ? DESELECTED_COLOR : COLORS[1],
+                                pointBorderColor: hasSelection ? DESELECTED_BORDER_COLOR : BORDER_COLORS[1],
+                                pointRadius: hasSelection ? 5 : 3,
+                                pointHoverRadius: 7,
+                                tension: 0.1,
+                                yAxisID: 'y1',
+                            }
+                        ]
+                    },
+                    options: {
+                        ...commonOptions,
+                        scales: {
+                            ...commonOptions.scales,
+                            y: {
+                                type: 'linear',
+                                display: true,
+                                position: 'left',
+                                ticks: { color: '#64748b' },
+                                grid: { color: '#e2e8f0' },
+                                title: { display: true, text: valueKey, color: '#64748b' }
+                            },
+                            y1: {
+                                type: 'linear',
+                                display: true,
+                                position: 'right',
+                                ticks: { color: '#64748b' },
+                                grid: {
+                                    drawOnChartArea: false, // only draw grid lines for the first Y axis
+                                },
+                                title: { display: true, text: secondaryValueKey, color: '#64748b' }
+                            }
+                        }
+                    }
+                });
+                break;
             default:
                 break;
         }

@@ -78,14 +78,16 @@ export const createCandidatePlansPrompt = (categoricalCols: string[], numericalC
     - valueColumn: 'VALUE'
     - Chart Type: 'bar'
     
-    For each plan, choose the most appropriate chartType ('bar', 'line', 'pie', 'doughnut', 'scatter'). 
+    For each plan, choose the most appropriate chartType ('bar', 'line', 'pie', 'doughnut', 'scatter', 'combo'). 
     - Use 'line' for time series trends.
     - Use 'bar' for most categorical comparisons, especially for "top X" style reports.
     - Use 'pie' or 'doughnut' for compositions with few categories.
     - Use 'scatter' to show the relationship between two numerical variables.
+    - **Use 'combo' (bar + line) to compare two different metrics against the same category (e.g., sum of 'Sales' as bars and average of 'Profit' as a line). You MUST provide both a primary and secondary value column and aggregation for combo charts.**
     
     Rules:
     - For 'scatter' plots, you MUST provide 'xValueColumn' and 'yValueColumn' (both numerical) and you MUST NOT provide 'aggregation' or 'groupByColumn'.
+    - For 'combo' charts, you MUST provide 'groupByColumn', 'valueColumn', 'aggregation', 'secondaryValueColumn', and 'secondaryAggregation'.
     - **CRITICAL**: Only use one of the following aggregation types: 'sum', 'count', 'avg'. Do NOT use other statistical measures like 'stddev', 'variance', 'median', etc.
     - Do not create plans that are too granular (e.g., grouping by a unique ID column if there are thousands of them).
 `;

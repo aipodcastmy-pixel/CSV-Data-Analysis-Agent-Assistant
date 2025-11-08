@@ -14,7 +14,7 @@ export interface ColumnProfile {
     missingPercentage?: number;
 }
 
-export type ChartType = 'bar' | 'line' | 'pie' | 'doughnut' | 'scatter';
+export type ChartType = 'bar' | 'line' | 'pie' | 'doughnut' | 'scatter' | 'combo';
 export type AggregationType = 'sum' | 'count' | 'avg';
 
 export interface AnalysisPlan {
@@ -26,6 +26,8 @@ export interface AnalysisPlan {
     valueColumn?: string; // Optional for 'count' aggregation
     xValueColumn?: string; // For scatter plots
     yValueColumn?: string; // For scatter plots
+    secondaryValueColumn?: string; // For combo charts
+    secondaryAggregation?: AggregationType; // For combo charts
     defaultTopN?: number; // Suggested Top N for charts with many categories
     defaultHideOthers?: boolean; // Suggestion for hiding 'Others' in Top N
 }
