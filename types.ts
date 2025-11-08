@@ -63,7 +63,7 @@ export interface Settings {
     provider: 'google' | 'openai';
     geminiApiKey: string;
     openAIApiKey: string;
-    model: 'gemini-2.5-flash' | 'gemini-2.5-pro' | 'gpt-4o' | 'gpt-4-turbo';
+    model: string;
     language: 'English' | 'Mandarin' | 'Spanish' | 'Japanese' | 'French';
 }
 

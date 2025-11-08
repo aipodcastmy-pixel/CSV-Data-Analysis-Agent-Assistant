@@ -9,8 +9,8 @@ interface SettingsModalProps {
 }
 
 const languages: Settings['language'][] = ['English', 'Mandarin', 'Spanish', 'Japanese', 'French'];
-const googleModels: (Settings['model'])[] = ['gemini-2.5-flash', 'gemini-2.5-pro'];
-const openAIModels: (Settings['model'])[] = ['gpt-4o', 'gpt-4-turbo'];
+const googleModels: Settings['model'][] = ['gemini-2.5-flash', 'gemini-2.5-pro'];
+const openAIModels: Settings['model'][] = ['gpt-5', 'gpt-5-mini', 'gpt-4o', 'gpt-4-turbo'];
 
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, onSave, currentSettings }) => {
@@ -122,19 +122,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
                         <label htmlFor="model" className="block text-sm font-medium text-slate-700">
                             AI Model
                         </label>
-                        <select
+                         <input
+                            type="text"
                             id="model"
                             name="model"
                             value={settings.model}
                             onChange={handleInputChange}
+                            list="model-list"
                             className="mt-1 block w-full bg-white border border-slate-300 rounded-md py-2 px-3 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        >
-                            {(settings.provider === 'google' ? googleModels : openAIModels).map(model => (
-                                <option key={model} value={model}>{model}</option>
+                            placeholder="e.g., gpt-4o"
+                        />
+                        <datalist id="model-list">
+                             {(settings.provider === 'google' ? googleModels : openAIModels).map(model => (
+                                <option key={model} value={model} />
                             ))}
-                        </select>
+                        </datalist>
                          <p className="text-xs text-slate-500 mt-1">
-                            {settings.provider === 'google' ? '`pro` is more powerful, `flash` is faster.' : '`gpt-4o` is the latest model.'}
+                            Select a suggested model or type a custom one.
                         </p>
                     </div>
 
