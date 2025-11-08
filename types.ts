@@ -52,13 +52,31 @@ export interface ProgressMessage {
     timestamp: Date;
 }
 
+// A plan that might have placeholders for the AI to fill in after clarification.
+export type PendingPlan = Partial<AnalysisPlan> & { [key: string]: any; };
+
+export interface ClarificationOption {
+    label: string; // "Sales in USD"
+    value: string; // "Sales_USD"
+}
+
+export interface ClarificationRequest {
+    question: string;
+    options: ClarificationOption[];
+    // The plan that is waiting for the user's input.
+    pendingPlan: PendingPlan;
+    // We need to know which property of the plan the user's choice will fill.
+    targetProperty: keyof AnalysisPlan;
+}
+
 export interface ChatMessage {
     sender: 'user' | 'ai';
     text: string;
     timestamp: Date;
-    type?: 'user_message' | 'ai_message' | 'ai_thinking' | 'ai_proactive_insight' | 'ai_plan_start'; // New field for special message types
+    type?: 'user_message' | 'ai_message' | 'ai_thinking' | 'ai_proactive_insight' | 'ai_plan_start' | 'ai_clarification'; // New field for special message types
     isError?: boolean; // To style error messages in the chat
     cardId?: string; // ID of the card this message refers to
+    clarificationRequest?: ClarificationRequest; // Attach the request to the message
 }
 
 export interface Settings {
@@ -86,6 +104,7 @@ export interface AppState {
     vectorStoreDocuments: VectorStoreDocument[]; // For persisting AI memory
     spreadsheetFilterFunction: string | null; // For AI-powered spreadsheet filtering
     aiFilterExplanation: string | null; // Explanation for the AI filter
+    pendingClarification: ClarificationRequest | null; // For the clarification loop
 }
 
 export interface DomAction {
@@ -95,7 +114,7 @@ export interface DomAction {
 
 export interface AiAction {
   thought?: string; // The AI's reasoning for this action (ReAct pattern).
-  responseType: 'plan_creation' | 'text_response' | 'dom_action' | 'execute_js_code' | 'proceed_to_analysis' | 'filter_spreadsheet';
+  responseType: 'plan_creation' | 'text_response' | 'dom_action' | 'execute_js_code' | 'proceed_to_analysis' | 'filter_spreadsheet' | 'clarification_request';
   plan?: AnalysisPlan;
   text?: string;
   cardId?: string; // For text_response, the ID of the card being discussed
@@ -107,6 +126,7 @@ export interface AiAction {
   args?: { // For actions like filter_spreadsheet
     query: string;
   };
+  clarification?: ClarificationRequest;
 }
 
 export interface AiChatResponse {

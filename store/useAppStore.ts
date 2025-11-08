@@ -1,11 +1,7 @@
-
-
-
-
 import { create } from 'zustand';
 // Fix: Import MouseEvent from React and alias it to resolve the type error.
 import type { MouseEvent as ReactMouseEvent } from 'react';
-import { AnalysisCardData, ChatMessage, ProgressMessage, CsvData, AnalysisPlan, AppState, ColumnProfile, AiAction, CardContext, ChartType, DomAction, Settings, Report, ReportListItem, AppView, CsvRow, DataPreparationPlan, AiFilterResponse } from '../types';
+import { AnalysisCardData, ChatMessage, ProgressMessage, CsvData, AnalysisPlan, AppState, ColumnProfile, AiAction, CardContext, ChartType, DomAction, Settings, Report, ReportListItem, AppView, CsvRow, DataPreparationPlan, AiFilterResponse, ClarificationRequest, ClarificationOption } from '../types';
 import { processCsv, profileData, executePlan, executeJavaScriptDataTransform } from '../utils/dataProcessor';
 import { generateAnalysisPlans, generateSummary, generateFinalSummary, generateChatResponse, generateDataPreparationPlan, generateCoreAnalysisSummary, generateProactiveInsights, generateFilterFunction } from '../services/aiService';
 import { getReportsList, saveReport, getReport, deleteReport, getSettings, saveSettings, CURRENT_SESSION_KEY } from '../storageService';
@@ -30,6 +26,7 @@ const initialAppState: AppState = {
     vectorStoreDocuments: [],
     spreadsheetFilterFunction: null,
     aiFilterExplanation: null,
+    pendingClarification: null,
 };
 
 interface StoreState extends AppState {
@@ -45,6 +42,7 @@ interface StoreState extends AppState {
     reportsList: ReportListItem[];
     isResizing: boolean;
     isApiKeySet: boolean;
+    pendingClarification: ClarificationRequest | null;
 }
 
 interface StoreActions {
@@ -59,6 +57,7 @@ interface StoreActions {
     regenerateAnalyses: (newData: CsvData) => Promise<void>;
     executeDomAction: (action: DomAction) => void;
     handleChatMessage: (message: string) => Promise<void>;
+    handleClarificationResponse: (userChoice: ClarificationOption) => Promise<void>;
     handleNaturalLanguageQuery: (query: string) => Promise<void>;
     clearAiFilter: () => void;
     handleChartTypeChange: (cardId: string, newType: ChartType) => void;
@@ -101,6 +100,7 @@ export const useAppStore = create<StoreState & StoreActions>((set, get) => ({
         }
         return !!settings.openAIApiKey;
     })(),
+    pendingClarification: null,
 
     init: async () => {
         const currentSession = await getReport(CURRENT_SESSION_KEY);
@@ -424,7 +424,6 @@ export const useAppStore = create<StoreState & StoreActions>((set, get) => ({
     },
 
     handleChatMessage: async (message) => {
-        // Implementation moved from useApp hook
         if (!get().isApiKeySet) {
             get().addProgress('API Key not set.', 'error');
             get().setIsSettingsModalOpen(true);
@@ -432,13 +431,12 @@ export const useAppStore = create<StoreState & StoreActions>((set, get) => ({
         }
 
         const newChatMessage: ChatMessage = { sender: 'user', text: message, timestamp: new Date(), type: 'user_message' };
-        set(prev => ({ isBusy: true, chatHistory: [...prev.chatHistory, newChatMessage] }));
+        set(prev => ({ isBusy: true, chatHistory: [...prev.chatHistory, newChatMessage], pendingClarification: null }));
 
         try {
             const cardContext: CardContext[] = get().analysisCards.map(c => ({
                 id: c.id, title: c.plan.title, aggregatedDataSample: c.aggregatedData.slice(0, 100),
             }));
-            // FIX: Added missing 'get().currentView' argument to match function signature.
             const response = await generateChatResponse(
                 get().columnProfiles, 
                 get().chatHistory, 
@@ -482,10 +480,26 @@ export const useAppStore = create<StoreState & StoreActions>((set, get) => ({
                             get().addProgress(`AI is filtering the data explorer based on your request.`);
                             await get().handleNaturalLanguageQuery(action.args.query);
                             set({ isSpreadsheetVisible: true });
-                            // Wait for the DOM to update before scrolling
                             setTimeout(() => {
                                 document.getElementById('raw-data-explorer')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
                             }, 100);
+                        }
+                        break;
+                    case 'clarification_request':
+                        if (action.clarification) {
+                            const clarificationMessage: ChatMessage = {
+                                sender: 'ai',
+                                text: action.clarification.question,
+                                timestamp: new Date(),
+                                type: 'ai_clarification',
+                                clarificationRequest: action.clarification,
+                            };
+                            set(prev => ({
+                                pendingClarification: action.clarification,
+                                chatHistory: [...prev.chatHistory, clarificationMessage]
+                            }));
+                            set({ isBusy: false });
+                            return; 
                         }
                         break;
                 }
@@ -494,6 +508,59 @@ export const useAppStore = create<StoreState & StoreActions>((set, get) => ({
             const errorMessage = error instanceof Error ? error.message : String(error);
             get().addProgress(`Error: ${errorMessage}`, 'error');
             const aiMessage: ChatMessage = { sender: 'ai', text: `Sorry, an error occurred: ${errorMessage}`, timestamp: new Date(), type: 'ai_message', isError: true };
+            set(prev => ({ chatHistory: [...prev.chatHistory, aiMessage] }));
+        } finally {
+            if (get().pendingClarification === null) {
+                set({ isBusy: false });
+            }
+        }
+    },
+
+    handleClarificationResponse: async (userChoice) => {
+        const { pendingClarification, csvData } = get();
+        if (!pendingClarification || !csvData) return;
+
+        console.log('[DEBUG] AI Clarification Pending Plan:', JSON.stringify(pendingClarification, null, 2));
+    
+        const userResponseMessage: ChatMessage = {
+            sender: 'user',
+            text: `Selected: ${userChoice.label}`,
+            timestamp: new Date(),
+            type: 'user_message',
+        };
+        set(prev => ({
+            isBusy: true,
+            chatHistory: [...prev.chatHistory, userResponseMessage],
+            pendingClarification: null, 
+        }));
+    
+        try {
+            const { pendingPlan, targetProperty } = pendingClarification;
+            
+            const completedPlan = {
+                ...pendingPlan,
+                [targetProperty]: userChoice.value,
+            } as AnalysisPlan;
+
+            console.log('[DEBUG] Plan after user clarification:', JSON.stringify(completedPlan, null, 2));
+            
+            if (!completedPlan.title) completedPlan.title = `Analysis of ${userChoice.label}`;
+            if (!completedPlan.description) completedPlan.description = `A chart showing an analysis of ${userChoice.label}.`;
+    
+            if (completedPlan.chartType !== 'scatter' && (!completedPlan.chartType || !completedPlan.groupByColumn || !completedPlan.aggregation)) {
+                 const missingFields = ['chartType', 'groupByColumn', 'aggregation'].filter(f => !(completedPlan as any)[f]);
+                 throw new Error(`The clarified plan is still missing required fields like ${missingFields.join(', ')}.`);
+            }
+    
+            const planMessage: ChatMessage = { sender: 'ai', text: `Okay, creating a chart for "${completedPlan.title}".`, timestamp: new Date(), type: 'ai_plan_start' };
+            set(prev => ({ chatHistory: [...prev.chatHistory, planMessage] }));
+    
+            await get().runAnalysisPipeline([completedPlan], csvData, true);
+    
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            get().addProgress(`Error processing clarification: ${errorMessage}`, 'error');
+            const aiMessage: ChatMessage = { sender: 'ai', text: `Sorry, an error occurred while creating the chart: ${errorMessage}`, timestamp: new Date(), type: 'ai_message', isError: true };
             set(prev => ({ chatHistory: [...prev.chatHistory, aiMessage] }));
         } finally {
             set({ isBusy: false });
@@ -647,6 +714,7 @@ setInterval(async () => {
             vectorStoreDocuments: vectorStore.getDocuments(),
             spreadsheetFilterFunction: state.spreadsheetFilterFunction,
             aiFilterExplanation: state.aiFilterExplanation,
+            pendingClarification: state.pendingClarification,
         };
 
         const currentReport: Report = {

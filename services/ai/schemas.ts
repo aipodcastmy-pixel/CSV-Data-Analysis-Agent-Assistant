@@ -88,6 +88,50 @@ export const singlePlanSchema = {
     required: ['chartType', 'title', 'description'],
 };
 
+const clarificationRequestSchema = {
+    type: Type.OBJECT,
+    properties: {
+        question: { type: Type.STRING, description: "The clear, user-facing question to ask for clarification." },
+        options: {
+            type: Type.ARRAY,
+            items: {
+                type: Type.OBJECT,
+                properties: {
+                    label: { type: Type.STRING, description: "The user-friendly text for the option button." },
+                    value: { type: Type.STRING, description: "The actual value to be used if this option is selected." }
+                },
+                required: ['label', 'value']
+            }
+        },
+        pendingPlan: {
+            type: Type.OBJECT,
+            description: "The partial analysis plan that is waiting for the user's input. It should contain all known parameters.",
+            // FIX: Gemini requires OBJECT types to have a non-empty `properties` field.
+            // A pending plan is a partial plan, so we list all possible properties but make none of them required.
+            properties: {
+              chartType: { type: Type.STRING, enum: ['bar', 'line', 'pie', 'doughnut', 'scatter', 'combo'] },
+              title: { type: Type.STRING },
+              description: { type: Type.STRING },
+              aggregation: { type: Type.STRING, enum: ['sum', 'count', 'avg'] },
+              groupByColumn: { type: Type.STRING },
+              valueColumn: { type: Type.STRING },
+              xValueColumn: { type: Type.STRING },
+              yValueColumn: { type: Type.STRING },
+              secondaryValueColumn: { type: Type.STRING },
+              secondaryAggregation: { type: Type.STRING, enum: ['sum', 'count', 'avg'] },
+              defaultTopN: { type: Type.INTEGER },
+              defaultHideOthers: { type: Type.BOOLEAN },
+            },
+        },
+        targetProperty: {
+            type: Type.STRING,
+            description: "The name of the property in the 'pendingPlan' that the user's selected value should be assigned to."
+        }
+    },
+    required: ['question', 'options', 'pendingPlan', 'targetProperty']
+};
+
+
 export const multiActionChatResponseSchema = {
     type: Type.OBJECT,
     properties: {
@@ -98,7 +142,7 @@ export const multiActionChatResponseSchema = {
                 type: Type.OBJECT,
                 properties: {
                     thought: { type: Type.STRING, description: "The AI's reasoning or thought process before performing the action. This explains *why* this action is being taken. This is a mandatory part of the ReAct pattern." },
-                    responseType: { type: Type.STRING, enum: ['text_response', 'plan_creation', 'dom_action', 'execute_js_code', 'proceed_to_analysis', 'filter_spreadsheet'] },
+                    responseType: { type: Type.STRING, enum: ['text_response', 'plan_creation', 'dom_action', 'execute_js_code', 'proceed_to_analysis', 'filter_spreadsheet', 'clarification_request'] },
                     text: { type: Type.STRING, description: "A conversational text response to the user. Required for 'text_response'." },
                     cardId: { type: Type.STRING, description: "Optional. The ID of the card this text response refers to. Used to link text to a specific chart." },
                     plan: {
@@ -140,7 +184,11 @@ export const multiActionChatResponseSchema = {
                         properties: {
                             query: { type: Type.STRING, description: "The natural language query to filter the spreadsheet by." },
                         },
-                    }
+                    },
+                    clarification: {
+                        ...clarificationRequestSchema,
+                        description: "The clarification request object. Required for 'clarification_request'."
+                    },
                 },
                 required: ['responseType', 'thought']
             }

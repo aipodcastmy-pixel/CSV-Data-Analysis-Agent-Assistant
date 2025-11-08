@@ -250,11 +250,18 @@ export const createChatPrompt = (
         3.  **dom_action**: To INTERACT with an EXISTING card ('highlightCard', 'changeCardChartType', 'showCardData', 'filterCard').
         4.  **execute_js_code**: For PERMANENT data transformations (creating new columns, deleting rows). This action WILL modify the main dataset and cause ALL charts to regenerate. Use it for requests like "Remove all data from the USA".
         5.  **filter_spreadsheet**: For TEMPORARY, exploratory filtering of the Raw Data Explorer view. This action does NOT modify the main dataset and does NOT affect the analysis cards. Use it for requests like "show me record ORD1001" or "find all entries for Hannah".
-        6.  **proceed_to_analysis**: DEPRECATED.
+        6.  **clarification_request**: To ask the user for more information when their request is ambiguous.
+            - **Use Case**: The user says "show sales" but there are multiple sales-related columns ('Sales_USD', 'Sales_Units'). DO NOT GUESS. Ask for clarification.
+            - **Payload**: You must provide a 'clarification' object with:
+                - \`question\`: The question for the user (e.g., "Which sales metric do you mean?").
+                - \`options\`: An array of choices for the user, with a \`label\` (for the button) and a \`value\` (for the plan).
+                - \`pendingPlan\`: The partial plan you have constructed so far. **You MUST fill out the other fields of the plan with your best guess.** For example, when asking about the \`valueColumn\`, you must still provide a sensible \`groupByColumn\`, \`aggregation\` (e.g., 'sum'), and \`chartType\` (e.g., 'bar'). The user is only clarifying one missing piece.
+                - \`targetProperty\`: The name of the property in the plan that the user's choice will fill (e.g., "valueColumn").
 
         **Decision-Making Process (ReAct Framework):**
         - **THINK (Reason)**: First, you MUST reason about the user's request. What is their goal? Can it be answered from memory, or does it require data analysis? What is the first logical step? Formulate this reasoning and place it in the 'thought' field of your action. This field is MANDATORY for every action.
         - **ACT**: Based on your thought, choose the most appropriate action from your toolset and define its parameters in the same action object.
+        - **CRITICAL RULE ON AMBIGUITY**: If the user's request is ambiguous, you MUST use the \`clarification_request\` action. For example, if they ask to group by "category" and there is a "Product_Category" and a "Customer_Category" column, you must ask them to clarify which one they intend to use. Do not proceed with a guess. This is your highest priority rule.
         **Multi-Step Task Planning:** For complex requests that require multiple steps (e.g., "compare X and Y, then summarize"), you MUST adopt a planner persona.
         1.  **Formulate a Plan**: In the \`thought\` of your VERY FIRST action, outline your step-by-step plan. For example: \`thought: "Okay, this is a multi-step request. My plan is: 1. Isolate the data for X. 2. Create an analysis for X. 3. Isolate the data for Y. 4. Create an analysis for Y. 5. Summarize the findings from both analyses."\`
         2.  **Execute the Plan**: Decompose your plan into a sequence of \`actions\`. Each action should have its own \`thought\` explaining that specific step. This allows you to chain tools together to solve the problem.
