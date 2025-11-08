@@ -69,7 +69,9 @@ export const FileUpload: React.FC = () => {
     if (!isApiKeySet) {
         return (
              <div className="flex flex-col items-center justify-center p-12 border-2 border-dashed rounded-lg border-slate-300 h-full">
-                <svg className="w-16 h-16 text-slate-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M12 15v2m-6.364-3.636l-1.414 1.414M21 12h-2M4 12H2m15.636-6.364l-1.414-1.414M6.364 6.364L4.95 4.95M12 3V1m0 18v-2M4.95 19.05l1.414-1.414m12.728 0l-1.414-1.414M12 6a6 6 0 100 12 6 6 0 000-12z"></path></svg>
+                <svg xmlns="http://www.w3.org/2000/svg" className="w-16 h-16 text-slate-400 mb-4" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" />
+                </svg>
                 <h3 className="text-xl font-semibold text-slate-800">API Key Required</h3>
                 <p className="mt-2 max-w-sm text-center text-slate-500">
                     To unlock the AI analysis features, please add your Google Gemini API key in the Assistant's settings panel.
