@@ -1,4 +1,3 @@
-
 import { openDB, DBSchema, IDBPDatabase } from 'idb';
 import { AppState, Settings, Report, ReportListItem } from './types';
 
@@ -81,6 +80,7 @@ export const deleteReport = async (id: string): Promise<void> => {
 // Settings Management
 const defaultSettings: Settings = {
     provider: 'google',
+    geminiApiKey: '',
     openAIApiKey: '',
     model: 'gemini-2.5-pro',
     language: 'English'
@@ -102,9 +102,6 @@ export const getSettings = (): Settings => {
             // Fix: Clean up old settings that might contain API keys no longer managed in the UI.
             if (savedSettings.apiKey) {
                 delete savedSettings.apiKey;
-            }
-            if (savedSettings.geminiApiKey) {
-                delete savedSettings.geminiApiKey;
             }
             return { ...defaultSettings, ...savedSettings };
         }

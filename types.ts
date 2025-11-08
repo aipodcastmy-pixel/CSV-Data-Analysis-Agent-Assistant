@@ -61,6 +61,7 @@ export interface ChatMessage {
 
 export interface Settings {
     provider: 'google' | 'openai';
+    geminiApiKey: string;
     openAIApiKey: string;
     model: string;
     language: 'English' | 'Mandarin' | 'Spanish' | 'Japanese' | 'French';

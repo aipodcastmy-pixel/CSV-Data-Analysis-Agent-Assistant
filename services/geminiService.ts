@@ -187,8 +187,8 @@ export const generateDataPreparationPlan = async (
                 jsonStr = response.choices[0].message.content;
 
             } else { // Google Gemini
-                // Fix: Use process.env.API_KEY for Gemini API key as per guidelines.
-                const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+                if (!settings.geminiApiKey) return { explanation: "No transformation needed as Gemini API key is not set.", jsFunctionBody: null, outputColumns: columns };
+                const ai = new GoogleGenAI({ apiKey: settings.geminiApiKey });
                 const prompt = `${promptContent}\nYour response must be a valid JSON object adhering to the provided schema.`;
 
                 const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
@@ -271,8 +271,7 @@ You MUST respond with a single valid JSON object with a single key "plans" that 
         plans = robustlyParseJsonArray(content);
     
     } else { // Google Gemini
-        // Fix: Use process.env.API_KEY for Gemini API key as per guidelines.
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+        const ai = new GoogleGenAI({ apiKey: settings.geminiApiKey });
         const prompt = `${promptContent}\nYour response must be a valid JSON array of plan objects. Do not include any other text or explanations.`;
         const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
             model: settings.model,
@@ -316,8 +315,7 @@ You MUST respond with a single valid JSON object with a single key "plans" that 
         rawPlans = robustlyParseJsonArray(content);
 
     } else { // Google Gemini
-        // Fix: Use process.env.API_KEY for Gemini API key as per guidelines.
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+        const ai = new GoogleGenAI({ apiKey: settings.geminiApiKey });
         const prompt = `${promptContent}\nYour response must be a valid JSON array of the refined and configured plan objects, adhering to the provided schema. Do not include any other text or explanations.`;
         const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
             model: settings.model,
@@ -348,8 +346,7 @@ export const generateAnalysisPlans = async (
     sampleData: CsvData['data'],
     settings: Settings
 ): Promise<AnalysisPlan[]> => {
-    // Fix: Update API key check logic. For Google, assume key is present via env vars.
-    const isApiKeySet = settings.provider === 'google' || !!settings.openAIApiKey;
+    const isApiKeySet = (settings.provider === 'google' && !!settings.geminiApiKey) || (settings.provider === 'openai' && !!settings.openAIApiKey);
     if (!isApiKeySet) throw new Error("API Key not provided.");
 
     try {
@@ -407,8 +404,7 @@ export const generateAnalysisPlans = async (
 
 
 export const generateSummary = async (title: string, data: CsvData['data'], settings: Settings): Promise<string> => {
-    // Fix: Update API key check logic. For Google, assume key is present via env vars.
-    const isApiKeySet = settings.provider === 'google' || !!settings.openAIApiKey;
+    const isApiKeySet = (settings.provider === 'google' && !!settings.geminiApiKey) || (settings.provider === 'openai' && !!settings.openAIApiKey);
     if (!isApiKeySet) return 'AI Summaries are disabled. No API Key provided.';
     
     try {
@@ -425,8 +421,7 @@ export const generateSummary = async (title: string, data: CsvData['data'], sett
             return response.choices[0].message.content || 'No summary generated.';
 
         } else { // Google Gemini
-            // Fix: Use process.env.API_KEY for Gemini API key as per guidelines.
-            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+            const ai = new GoogleGenAI({ apiKey: settings.geminiApiKey });
             const prompt = `${promptContent}\nYour response must be only the summary text in the specified format.`;
 
             const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
@@ -443,8 +438,7 @@ export const generateSummary = async (title: string, data: CsvData['data'], sett
 
 // NEW: Function for the AI to create its core analysis summary (transparent thinking)
 export const generateCoreAnalysisSummary = async (cardContext: CardContext[], columns: ColumnProfile[], settings: Settings): Promise<string> => {
-    // Fix: Update API key check logic. For Google, assume key is present via env vars.
-    const isApiKeySet = settings.provider === 'google' || !!settings.openAIApiKey;
+    const isApiKeySet = (settings.provider === 'google' && !!settings.geminiApiKey) || (settings.provider === 'openai' && !!settings.openAIApiKey);
     if (!isApiKeySet || cardContext.length === 0) return "Could not generate an initial analysis summary.";
 
     try {
@@ -467,8 +461,7 @@ Produce a single, concise paragraph in ${settings.language}. This is your initia
             return response.choices[0].message.content || 'No summary generated.';
 
         } else { // Google Gemini
-            // Fix: Use process.env.API_KEY for Gemini API key as per guidelines.
-            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+            const ai = new GoogleGenAI({ apiKey: settings.geminiApiKey });
             const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
                 model: settings.model,
                 contents: promptContent,
@@ -491,8 +484,7 @@ const proactiveInsightSchema = {
 };
 
 export const generateProactiveInsights = async (cardContext: CardContext[], settings: Settings): Promise<{ insight: string; cardId: string; } | null> => {
-    // Fix: Update API key check logic. For Google, assume key is present via env vars.
-    const isApiKeySet = settings.provider === 'google' || !!settings.openAIApiKey;
+    const isApiKeySet = (settings.provider === 'google' && !!settings.geminiApiKey) || (settings.provider === 'openai' && !!settings.openAIApiKey);
     if (!isApiKeySet || cardContext.length === 0) return null;
 
     try {
@@ -517,8 +509,7 @@ export const generateProactiveInsights = async (cardContext: CardContext[], sett
             jsonStr = content;
         
         } else { // Google Gemini
-            // Fix: Use process.env.API_KEY for Gemini API key as per guidelines.
-            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+            const ai = new GoogleGenAI({ apiKey: settings.geminiApiKey });
             const prompt = `${promptContent}\nYour response must be a valid JSON object adhering to the provided schema.`;
 
             const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
@@ -541,8 +532,7 @@ export const generateProactiveInsights = async (cardContext: CardContext[], sett
 
 
 export const generateFinalSummary = async (cards: AnalysisCardData[], settings: Settings): Promise<string> => {
-    // Fix: Update API key check logic. For Google, assume key is present via env vars.
-    const isApiKeySet = settings.provider === 'google' || !!settings.openAIApiKey;
+    const isApiKeySet = (settings.provider === 'google' && !!settings.geminiApiKey) || (settings.provider === 'openai' && !!settings.openAIApiKey);
     if (!isApiKeySet) return 'AI Summaries are disabled. No API Key provided.';
 
     const summaries = cards.map(card => {
@@ -569,8 +559,7 @@ Your response should be a single paragraph of insightful business analysis.`;
             return response.choices[0].message.content || 'No final summary generated.';
 
         } else { // Google Gemini
-            // Fix: Use process.env.API_KEY for Gemini API key as per guidelines.
-            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+            const ai = new GoogleGenAI({ apiKey: settings.geminiApiKey });
             const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
                 model: settings.model,
                 contents: promptContent,
@@ -668,8 +657,7 @@ export const generateChatResponse = async (
     longTermMemory: string[],
     dataPreparationPlan: DataPreparationPlan | null
 ): Promise<AiChatResponse> => {
-    // Fix: Update API key check logic. For Google, assume key is present via env vars.
-    const isApiKeySet = settings.provider === 'google' || !!settings.openAIApiKey;
+    const isApiKeySet = (settings.provider === 'google' && !!settings.geminiApiKey) || (settings.provider === 'openai' && !!settings.openAIApiKey);
     if (!isApiKeySet) {
         return { actions: [{ responseType: 'text_response', text: 'Cloud AI is disabled. API Key not provided.', thought: 'API key is missing, so I must inform the user.' }] };
     }
@@ -700,8 +688,7 @@ Your output MUST be a single JSON object with an "actions" key containing an arr
             jsonStr = content;
 
         } else { // Google Gemini
-            // Fix: Use process.env.API_KEY for Gemini API key as per guidelines.
-            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+            const ai = new GoogleGenAI({ apiKey: settings.geminiApiKey });
             const prompt = `${promptContent}\nYour output MUST be a single JSON object with an "actions" key containing an array of action objects.`;
             const response: GenerateContentResponse = await withRetry(() => ai.models.generateContent({
                 model: settings.model,

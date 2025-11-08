@@ -84,11 +84,12 @@ export const useAppStore = create<StoreState & StoreActions>((set, get) => ({
     settings: getSettings(),
     reportsList: [],
     isResizing: false,
-    // Fix: Update API key status logic to align with guidelines.
     isApiKeySet: (() => {
         const settings = getSettings();
-        // For Google, assume the API key is set via environment variables. For OpenAI, check settings.
-        return settings.provider === 'google' || !!settings.openAIApiKey;
+        if (settings.provider === 'google') {
+            return !!settings.geminiApiKey;
+        }
+        return !!settings.openAIApiKey;
     })(),
 
     init: async () => {
@@ -119,10 +120,12 @@ export const useAppStore = create<StoreState & StoreActions>((set, get) => ({
 
     handleSaveSettings: (newSettings) => {
         saveSettings(newSettings);
-        // Fix: Update API key status logic when settings change.
+        const isSet = newSettings.provider === 'google'
+            ? !!newSettings.geminiApiKey
+            : !!newSettings.openAIApiKey;
         set({ 
             settings: newSettings,
-            isApiKeySet: newSettings.provider === 'google' || !!newSettings.openAIApiKey
+            isApiKeySet: isSet,
         });
     },
 
