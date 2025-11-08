@@ -15,6 +15,7 @@ import { vectorStore } from './services/vectorStore';
 
 const MIN_ASIDE_WIDTH = 320;
 const MAX_ASIDE_WIDTH = 800;
+const MIN_MAIN_WIDTH = 600; // The minimum width for the main content panel
 
 const ShowAssistantIcon: React.FC = () => (
     <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -63,6 +64,7 @@ const App: React.FC = () => {
     const [isMemoryPanelOpen, setIsMemoryPanelOpen] = useState(false);
     const [settings, setSettings] = useState<Settings>(() => getSettings());
     const [reportsList, setReportsList] = useState<ReportListItem[]>([]);
+    const [isResizing, setIsResizing] = useState(false); // To give visual feedback on the resizer
 
     const isResizingAsideRef = useRef(false);
     const isMounted = useRef(false);
@@ -141,15 +143,23 @@ const App: React.FC = () => {
 
     const handleAsideMouseMove = useCallback((e: MouseEvent) => {
         if (!isResizingAsideRef.current) return;
+        
+        // The maximum width the aside can be without shrinking the main panel too much
+        const maxAllowedAsideWidth = window.innerWidth - MIN_MAIN_WIDTH;
+
         let newWidth = window.innerWidth - e.clientX;
-        if (newWidth < MIN_ASIDE_WIDTH) newWidth = MIN_ASIDE_WIDTH;
-        if (newWidth > MAX_ASIDE_WIDTH) newWidth = MAX_ASIDE_WIDTH;
+
+        // Clamp the new width between its own min/max and the max allowed by the main panel's min width.
+        newWidth = Math.max(MIN_ASIDE_WIDTH, newWidth);
+        newWidth = Math.min(MAX_ASIDE_WIDTH, newWidth, maxAllowedAsideWidth);
+        
         setAsideWidth(newWidth);
     }, []);
     
 
     const handleMouseUp = useCallback(() => {
         isResizingAsideRef.current = false;
+        setIsResizing(false);
         document.removeEventListener('mousemove', handleAsideMouseMove);
         document.removeEventListener('mouseup', handleMouseUp);
         document.body.style.cursor = '';
@@ -159,6 +169,7 @@ const App: React.FC = () => {
     const handleAsideMouseDown = useCallback((e: React.MouseEvent) => {
         e.preventDefault();
         isResizingAsideRef.current = true;
+        setIsResizing(true);
         document.addEventListener('mousemove', handleAsideMouseMove);
         document.addEventListener('mouseup', handleMouseUp);
         document.body.style.cursor = 'col-resize';
@@ -821,10 +832,10 @@ const App: React.FC = () => {
                 isOpen={isMemoryPanelOpen}
                 onClose={() => setIsMemoryPanelOpen(false)}
             />
-            <main className="flex-1 overflow-hidden p-4 md:p-6 lg:p-8 flex flex-col">
-                <header className="mb-6 flex justify-between items-center flex-shrink-0">
-                    <div>
-                        <h1 className="text-3xl font-bold text-slate-900">CSV Data Analysis Agent</h1>
+            <main className="flex-1 overflow-hidden p-4 flex flex-col">
+                <header className="mb-6 flex justify-between items-start flex-shrink-0">
+                    <div className="max-w-xs">
+                        <h1 className="text-xl font-extrabold text-slate-900 leading-tight">CSV Data Analysis Agent</h1>
                     </div>
                      <div className="flex items-center space-x-2">
                          <button
@@ -837,7 +848,7 @@ const App: React.FC = () => {
                         </button>
                         <button 
                             onClick={() => {loadReportsList(); setIsHistoryPanelOpen(true);}}
-                            className="flex items-center space-x-2 px-3 py-2 bg-slate-200 text-slate-700 rounded-md hover:bg-slate-300 transition-colors"
+                            className="flex items-center space-x-2 px-3 py-2 bg-white border border-slate-300 text-slate-700 rounded-md hover:bg-slate-100 transition-colors"
                             title="View analysis history"
                         >
                            <HistoryIcon />
@@ -860,7 +871,16 @@ const App: React.FC = () => {
             
             {isAsideVisible && (
                 <>
-                    <div onMouseDown={handleAsideMouseDown} className="hidden md:block w-1.5 cursor-col-resize bg-slate-300 hover:bg-brand-secondary transition-colors duration-200"/>
+                    <div 
+                        onMouseDown={handleAsideMouseDown}
+                        onDoubleClick={() => setIsAsideVisible(false)}
+                        className="hidden md:flex group items-center justify-center w-2.5 cursor-col-resize"
+                        title="Drag to resize, double-click to hide"
+                    >
+                        <div 
+                            className={`w-0.5 h-8 bg-slate-300 rounded-full transition-colors duration-200 group-hover:bg-brand-secondary ${isResizing ? '!bg-blue-600' : ''}`} 
+                        />
+                    </div>
                     <aside className="w-full md:w-auto bg-white flex flex-col h-full border-l border-slate-200" style={{ width: asideWidth }}>
                         <ChatPanel 
                             progressMessages={progressMessages} 
