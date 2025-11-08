@@ -225,6 +225,7 @@ export const AnalysisCard: React.FC<AnalysisCardProps> = ({ cardData, onChartTyp
                             <option value="5">Top 5</option>
                             <option value="8">Top 8</option>
                             <option value="10">Top 10</option>
+                            <option value="15">Top 15</option>
                             <option value="20">Top 20</option>
                         </select>
                          {topN && (
