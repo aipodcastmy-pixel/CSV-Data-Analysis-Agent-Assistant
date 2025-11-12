@@ -33,7 +33,7 @@ This advanced tool allows users to have a conversation with their data, asking f
 *   **Configurable AI Settings**:
     *   Choose between Google Gemini and OpenAI as your AI provider.
     *   Securely use your own API key for the selected provider.
-    *   Switch between powerful models like `gemini-2.5-pro`, `gemini-2.5-flash`, `gpt-4o`, and `gpt-4-turbo`.
+    *   Switch between powerful models like `gemini-2.5-pro`, `gemini-2.5-flash`, `gpt-5`, and `gpt-5-mini`.
     *   Choose the agent's response language.
 
 *   **AI-Powered Analysis Generation**: On file upload, the AI assistant proactively generates a set of 4 to 12 diverse and insightful analysis plans and visualizes them as cards. It also provides a **"Core Analysis Briefing"** in the chat, summarizing its initial understanding of your data to establish a shared context for your conversation.
@@ -60,7 +60,7 @@ To use the AI-powered features, you need to select an AI provider and configure 
 1.  Click the **Settings** icon (⚙️) in the top-right of the Assistant panel.
 2.  **AI Provider**: Choose between Google Gemini and OpenAI.
 3.  **API Key**: Paste your API key for the selected provider. You can get a Gemini key from [Google AI Studio](https://aistudio.google.com/app/apikey) or an OpenAI key from the [OpenAI Platform](https://platform.openai.com/api-keys).
-4.  **AI Model**: Choose from the available models for your selected provider (e.g., `gemini-2.5-pro`, `gpt-4o`).
+4.  **AI Model**: Choose from the available models for your selected provider (e.g., `gemini-2.5-pro`, `gpt-5`).
 5.  **Agent Language**: Select the primary language for the AI's responses and summaries.
 
 Your settings are saved securely in your browser's local storage and are never transmitted anywhere else.

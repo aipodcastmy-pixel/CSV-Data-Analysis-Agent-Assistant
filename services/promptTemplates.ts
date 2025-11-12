@@ -208,7 +208,8 @@ export const createChatPrompt = (
     aiCoreAnalysisSummary: string | null,
     rawDataSample: CsvRow[],
     longTermMemory: string[],
-    dataPreparationPlan: DataPreparationPlan | null
+    dataPreparationPlan: DataPreparationPlan | null,
+    selfCorrectionFeedback: string | null
 ): string => {
     const categoricalCols = columns.filter(c => c.type === 'categorical' || c.type === 'date' || c.type === 'time').map(c => c.name);
     const numericalCols = columns.filter(c => c.type === 'numerical' || c.type === 'currency' || c.type === 'percentage').map(c => c.name);
@@ -224,6 +225,10 @@ export const createChatPrompt = (
         **DATA PREPARATION LOG (How the raw data was initially cleaned):**
         ---
         ${dataPreparationPlan ? `Explanation: ${dataPreparationPlan.explanation}\nCode Executed: \`\`\`javascript\n${dataPreparationPlan.jsFunctionBody}\n\`\`\`` : "No AI-driven data preparation was performed."}
+        ---
+        **SELF-CORRECTION FEEDBACK (Previous Attempt Failed):**
+        ---
+        ${selfCorrectionFeedback ? `CRITICAL: Your last response failed validation. You MUST correct the errors detailed below and try again. DO NOT repeat the mistake.\n${selfCorrectionFeedback}` : "No previous errors in this turn."}
         ---
         **LONG-TERM MEMORY (Relevant past context, ordered by relevance):**
         ---

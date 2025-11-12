@@ -4,7 +4,7 @@ import { useAppStore } from '../store/useAppStore';
 
 const languages: Settings['language'][] = ['English', 'Mandarin', 'Spanish', 'Japanese', 'French'];
 const googleModels: Settings['model'][] = ['gemini-2.5-flash', 'gemini-2.5-pro'];
-const openAIModels: Settings['model'][] = ['gpt-5', 'gpt-5-mini', 'gpt-4o', 'gpt-4-turbo'];
+const openAIModels: Settings['model'][] = ['gpt-5', 'gpt-5-mini'];
 
 
 export const SettingsModal: React.FC = () => {
@@ -44,7 +44,7 @@ export const SettingsModal: React.FC = () => {
             if (provider === 'google' && !currentModelIsGoogle) {
                 newModel = 'gemini-2.5-pro';
             } else if (provider === 'openai' && !currentModelIsOpenAI) {
-                newModel = 'gpt-4o';
+                newModel = 'gpt-5';
             }
 
             return { ...prev, provider, model: newModel as any };
@@ -131,7 +131,7 @@ export const SettingsModal: React.FC = () => {
                             onChange={handleInputChange}
                             list="model-list"
                             className="mt-1 block w-full bg-white border border-slate-300 rounded-md py-2 px-3 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            placeholder="e.g., gpt-4o"
+                            placeholder="e.g., gpt-5"
                         />
                         <datalist id="model-list">
                              {(settings.provider === 'google' ? googleModels : openAIModels).map(model => (

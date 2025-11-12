@@ -1,8 +1,8 @@
-
 import { CsvData, ColumnProfile, Settings, AnalysisCardData, CardContext, CsvRow } from '../../types';
 import { callGemini, callOpenAI } from './apiClient';
 import { proactiveInsightSchema } from './schemas';
 import { createSummaryPrompt, createCoreAnalysisPrompt, createProactiveInsightPrompt, createFinalSummaryPrompt } from '../promptTemplates';
+import OpenAI from 'openai';
 
 export const generateSummary = async (title: string, data: CsvRow[], settings: Settings): Promise<string> => {
     const isApiKeySet = (settings.provider === 'google' && !!settings.geminiApiKey) || (settings.provider === 'openai' && !!settings.openAIApiKey);
@@ -13,11 +13,13 @@ export const generateSummary = async (title: string, data: CsvRow[], settings: S
         if (settings.provider === 'openai') {
             const systemPrompt = `You are a business intelligence analyst. Your response must be only the summary text in the specified format. The summary should highlight key trends, outliers, or business implications. Do not just describe the data; interpret its meaning. For example, instead of "Region A has 500 sales", say "Region A is the top performer, contributing the majority of sales, which suggests a strong market presence there."`;
             
-            const messages = [{ role: 'system', content: systemPrompt }, { role: 'user', content: promptContent }];
-            return await callOpenAI(settings, messages, false) || 'No summary generated.';
+            const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [{ role: 'system', content: systemPrompt }, { role: 'user', content: promptContent }];
+            const { content } = await callOpenAI(settings, messages, false);
+            return content || 'No summary generated.';
 
         } else { // Google Gemini
-            return await callGemini(settings, promptContent);
+            const { content } = await callGemini(settings, promptContent);
+            return content;
         }
     } catch (error) {
         console.error("Error generating summary:", error);
@@ -40,11 +42,13 @@ Your briefing should cover:
 4.  **Suggested Focus**: Based on the initial charts, what should be the focus of further analysis? (e.g., "Future analysis should focus on identifying the most profitable regions and product categories.")
 Produce a single, concise paragraph in ${settings.language}. This is your initial assessment that you will share with your human counterpart.`;
             
-            const messages = [{ role: 'system', content: systemPrompt }, { role: 'user', content: promptContent }];
-            return await callOpenAI(settings, messages, false) || 'No summary generated.';
+            const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [{ role: 'system', content: systemPrompt }, { role: 'user', content: promptContent }];
+            const { content } = await callOpenAI(settings, messages, false);
+            return content || 'No summary generated.';
 
         } else { // Google Gemini
-            return await callGemini(settings, promptContent);
+            const { content } = await callGemini(settings, promptContent);
+            return content;
         }
     } catch (error) {
         console.error("Error generating core analysis summary:", error);
@@ -63,11 +67,13 @@ export const generateProactiveInsights = async (cardContext: CardContext[], sett
         if (settings.provider === 'openai') {
              const systemPrompt = `You are a proactive data analyst. Review the following summaries of data visualizations. Your task is to identify the single most commercially significant or surprising insight. This could be a major trend, a key outlier, or a dominant category that has clear business implications. Your response must be a single JSON object with 'insight' and 'cardId' keys.`;
             
-            const messages = [{ role: 'system', content: systemPrompt }, { role: 'user', content: promptContent }];
-            jsonStr = await callOpenAI(settings, messages, true);
+            const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [{ role: 'system', content: systemPrompt }, { role: 'user', content: promptContent }];
+            const { content } = await callOpenAI(settings, messages, true);
+            jsonStr = content;
         
         } else { // Google Gemini
-            jsonStr = await callGemini(settings, promptContent, proactiveInsightSchema);
+            const { content } = await callGemini(settings, promptContent, proactiveInsightSchema);
+            jsonStr = content;
         }
         return JSON.parse(jsonStr);
 
@@ -96,11 +102,13 @@ Identify the most critical business insights, potential opportunities, or risks 
 Do not just repeat the individual summaries. Create a new, synthesized narrative.
 Your response should be a single paragraph of insightful business analysis.`;
             
-            const messages = [{ role: 'system', content: systemPrompt }, { role: 'user', content: promptContent }];
-            return await callOpenAI(settings, messages, false) || 'No final summary generated.';
+            const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [{ role: 'system', content: systemPrompt }, { role: 'user', content: promptContent }];
+            const { content } = await callOpenAI(settings, messages, false);
+            return content || 'No final summary generated.';
 
         } else { // Google Gemini
-            return await callGemini(settings, promptContent);
+            const { content } = await callGemini(settings, promptContent);
+            return content;
         }
     } catch (error) {
         console.error("Error generating final summary:", error);

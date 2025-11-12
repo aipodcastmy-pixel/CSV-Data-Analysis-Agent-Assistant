@@ -130,8 +130,11 @@ export interface AiAction {
   clarification?: ClarificationRequest;
 }
 
+export type StopReason = 'stop' | 'tool_calls' | 'max_tokens' | 'safety' | 'recitation' | 'other' | 'unknown';
+
 export interface AiChatResponse {
     actions: AiAction[];
+    stopReason?: StopReason;
 }
 
 export interface DataPreparationPlan {

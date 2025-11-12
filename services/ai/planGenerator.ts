@@ -3,46 +3,7 @@ import { callGemini, callOpenAI, robustlyParseJsonArray } from './apiClient';
 import { planSchema } from './schemas';
 import { createCandidatePlansPrompt, createRefinePlansPrompt } from '../promptTemplates';
 import { executePlan } from '../../utils/dataProcessor';
-
-const ALLOWED_AGGREGATIONS: Set<AggregationType> = new Set(['sum', 'count', 'avg']);
-
-// Helper to validate a plan object from the AI
-export const isValidPlan = (plan: any): plan is AnalysisPlan => {
-    if (!plan || typeof plan !== 'object' || !plan.chartType || !plan.title) {
-        console.warn('Skipping invalid plan: missing chartType or title.', plan);
-        return false;
-    }
-
-    if (plan.chartType === 'scatter') {
-        if (!plan.xValueColumn || !plan.yValueColumn) {
-            console.warn('Skipping invalid scatter plot plan: missing xValueColumn or yValueColumn.', plan);
-            return false;
-        }
-    } else if (plan.chartType === 'combo') {
-        if (!plan.groupByColumn || !plan.valueColumn || !plan.aggregation || !plan.secondaryValueColumn || !plan.secondaryAggregation) {
-            console.warn('Skipping invalid combo chart plan: missing required aggregation fields.', plan);
-            return false;
-        }
-        if (!ALLOWED_AGGREGATIONS.has(plan.aggregation) || !ALLOWED_AGGREGATIONS.has(plan.secondaryAggregation)) {
-            console.warn(`Skipping invalid combo plan: unsupported aggregation type.`, plan);
-            return false;
-        }
-    } else { // bar, line, pie, doughnut
-        if (!plan.aggregation || !plan.groupByColumn) {
-            console.warn(`Skipping invalid plan: missing aggregation or groupByColumn for chart type ${plan.chartType}.`, plan);
-            return false;
-        }
-        if (!ALLOWED_AGGREGATIONS.has(plan.aggregation)) {
-            console.warn(`Skipping invalid plan: unsupported aggregation type "${plan.aggregation}".`, plan);
-            return false;
-        }
-        if (plan.aggregation !== 'count' && !plan.valueColumn) {
-            console.warn('Skipping invalid plan: missing valueColumn for sum/avg aggregation.', plan);
-            return false;
-        }
-    }
-    return true;
-};
+import OpenAI from 'openai';
 
 const generateCandidatePlans = async (
     columns: ColumnProfile[],
@@ -60,16 +21,16 @@ const generateCandidatePlans = async (
         const systemPrompt = `You are a senior business intelligence analyst specializing in ERP and financial data. Your task is to generate a diverse list of insightful analysis plan candidates for a given dataset by identifying common data patterns.
 You MUST respond with a single valid JSON object with a single key "plans" that contains an array of plan objects, and nothing else. The JSON object must adhere to the provided schema.`;
 
-        const messages = [{ role: 'system', content: systemPrompt }, { role: 'user', content: promptContent }];
-        const content = await callOpenAI(settings, messages, true);
+        const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [{ role: 'system', content: systemPrompt }, { role: 'user', content: promptContent }];
+        const { content } = await callOpenAI(settings, messages, true);
         plans = robustlyParseJsonArray(content);
     
     } else { // Google Gemini
-        const content = await callGemini(settings, promptContent, planSchema);
+        const { content } = await callGemini(settings, promptContent, planSchema);
         plans = robustlyParseJsonArray(content);
     }
 
-    return plans.filter(isValidPlan);
+    return plans;
 };
 
 // Helper function for the second step: the AI Quality Gate
@@ -84,12 +45,12 @@ const refineAndConfigurePlans = async (
         const systemPrompt = `You are a Quality Review Data Analyst. Your job is to review a list of proposed analysis plans and their data samples. Your goal is to select ONLY the most insightful and readable charts for the end-user, and configure them for the best default view.
 You MUST respond with a single valid JSON object with a single key "plans" that contains an array of ONLY the good, configured plan objects. Do not include the discarded plans. The JSON object must adhere to the provided schema.`;
         
-        const messages = [{ role: 'system', content: systemPrompt }, { role: 'user', content: promptContent }];
-        const content = await callOpenAI(settings, messages, true);
+        const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [{ role: 'system', content: systemPrompt }, { role: 'user', content: promptContent }];
+        const { content } = await callOpenAI(settings, messages, true);
         rawPlans = robustlyParseJsonArray(content);
 
     } else { // Google Gemini
-        const content = await callGemini(settings, promptContent, planSchema);
+        const { content } = await callGemini(settings, promptContent, planSchema);
         rawPlans = robustlyParseJsonArray(content);
     }
     
@@ -102,7 +63,7 @@ You MUST respond with a single valid JSON object with a single key "plans" that 
         return p;
     });
 
-    return normalizedPlans.filter(isValidPlan);
+    return normalizedPlans;
 };
 
 
@@ -115,7 +76,7 @@ export const generateAnalysisPlans = async (
     if (!isApiKeySet) throw new Error("API Key not provided.");
 
     try {
-        // Step 1: Generate a broad list of candidate plans (already validated inside the function)
+        // Step 1: Generate a broad list of candidate plans
         const candidatePlans = await generateCandidatePlans(columns, sampleData, settings, 12);
         if (candidatePlans.length === 0) return [];
 
@@ -130,7 +91,6 @@ export const generateAnalysisPlans = async (
                 }
                 return null;
             } catch (e) {
-                // This catch is a safeguard, but isValidPlan should prevent most errors.
                 console.warn(`Execution of plan "${plan.title}" failed during review stage:`, e);
                 return null;
             }
@@ -141,7 +101,7 @@ export const generateAnalysisPlans = async (
             return candidatePlans.slice(0, 4);
         }
         
-        // Step 3: AI Quality Gate - Ask AI to review and refine the plans (already validated inside the function)
+        // Step 3: AI Quality Gate - Ask AI to review and refine the plans
         const refinedPlans = await refineAndConfigurePlans(plansWithDataForReview, settings);
 
         // Ensure we have a minimum number of plans

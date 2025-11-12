@@ -1,7 +1,6 @@
-
-import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
+import { GoogleGenAI, GenerateContentResponse, FinishReason } from "@google/genai";
 import OpenAI from 'openai';
-import { Settings } from '../../types';
+import { Settings, StopReason } from '../../types';
 
 // Helper for retrying API calls
 export const withRetry = async <T>(fn: () => Promise<T>, retries = 2): Promise<T> => {
@@ -65,7 +64,17 @@ export const robustlyParseJsonArray = (responseText: string): any[] => {
 };
 
 
-export const callOpenAI = async (settings: Settings, messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[], useJsonFormat: boolean): Promise<string> => {
+const mapOpenAIStopReason = (reason: OpenAI.Chat.Completions.ChatCompletion.Choice['finish_reason'] | null): StopReason => {
+    switch (reason) {
+        case 'stop': return 'stop';
+        case 'length': return 'max_tokens';
+        case 'tool_calls': return 'tool_calls';
+        case 'content_filter': return 'safety';
+        default: return 'unknown';
+    }
+};
+
+export const callOpenAI = async (settings: Settings, messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[], useJsonFormat: boolean): Promise<{ content: string; stopReason: StopReason; }> => {
     if (!settings.openAIApiKey) throw new Error("OpenAI API key is not set.");
     const openai = new OpenAI({ apiKey: settings.openAIApiKey, dangerouslyAllowBrowser: true });
     
@@ -76,11 +85,24 @@ export const callOpenAI = async (settings: Settings, messages: OpenAI.Chat.Compl
     }));
     
     const content = response.choices[0].message.content;
+    const stopReason = mapOpenAIStopReason(response.choices[0].finish_reason);
+
     if (!content) throw new Error("OpenAI returned an empty response.");
-    return content;
+    return { content, stopReason };
 }
 
-export const callGemini = async (settings: Settings, prompt: string, schema?: any): Promise<string> => {
+const mapGeminiStopReason = (reason?: FinishReason): StopReason => {
+    switch (reason) {
+        case FinishReason.STOP: return 'stop';
+        case FinishReason.MAX_TOKENS: return 'max_tokens';
+        case FinishReason.SAFETY: return 'safety';
+        case FinishReason.RECITATION: return 'recitation';
+        case FinishReason.OTHER: return 'other';
+        default: return 'unknown';
+    }
+};
+
+export const callGemini = async (settings: Settings, prompt: string, schema?: any): Promise<{ content: string; stopReason: StopReason; }> => {
     if (!settings.geminiApiKey) throw new Error("Gemini API key is not set.");
     const ai = new GoogleGenAI({ apiKey: settings.geminiApiKey });
     
@@ -95,5 +117,9 @@ export const callGemini = async (settings: Settings, prompt: string, schema?: an
             responseSchema: schema,
         } : undefined,
     }));
-    return response.text.trim();
+    
+    const content = response.text.trim();
+    const stopReason = mapGeminiStopReason(response.candidates?.[0]?.finishReason);
+    
+    return { content, stopReason };
 }

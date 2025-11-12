@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { ProgressMessage } from '../types';
 import { useAppStore } from '../store/useAppStore';
 
@@ -12,6 +12,7 @@ export const FileUpload: React.FC = () => {
     }));
 
     const [dragActive, setDragActive] = useState(false);
+    const logContainerRef = useRef<HTMLDivElement>(null);
     
     const handleDrag = useCallback((e: React.DragEvent) => {
         e.preventDefault();
@@ -41,6 +42,13 @@ export const FileUpload: React.FC = () => {
         }
     };
 
+    useEffect(() => {
+        if (logContainerRef.current) {
+            logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
+        }
+    }, [progressMessages]);
+
+
     if (isBusy && fileName) {
         return (
             <div className="flex flex-col items-center justify-center p-12 border-2 border-dashed rounded-lg border-blue-500 bg-slate-100 h-full">
@@ -51,7 +59,7 @@ export const FileUpload: React.FC = () => {
                     </svg>
                     <span>Processing "{fileName}"...</span>
                 </div>
-                <div className="w-full max-w-lg bg-white rounded-md p-4 max-h-64 overflow-y-auto border border-slate-200">
+                <div ref={logContainerRef} className="w-full max-w-lg bg-white rounded-md p-4 max-h-64 overflow-y-auto border border-slate-200">
                     <ul className="space-y-1">
                         {progressMessages.map((msg, index) => (
                             <li key={index} className={`flex text-xs ${msg.type === 'error' ? 'text-red-600' : 'text-slate-500'}`}>

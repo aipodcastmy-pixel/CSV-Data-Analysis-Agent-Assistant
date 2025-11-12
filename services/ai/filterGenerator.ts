@@ -2,6 +2,7 @@ import { ColumnProfile, CsvRow, Settings, AiFilterResponse } from '../../types';
 import { callGemini, callOpenAI } from './apiClient';
 import { filterFunctionSchema } from './schemas';
 import { createFilterFunctionPrompt } from '../promptTemplates';
+import OpenAI from 'openai';
 
 export const generateFilterFunction = async (
     query: string,
@@ -20,14 +21,16 @@ export const generateFilterFunction = async (
             if (settings.provider === 'openai') {
                 const systemPrompt = "You are an expert data analyst. Your task is to convert a user's natural language query into a JavaScript filter function body for a dataset. You MUST respond with a single valid JSON object, and nothing else. The JSON object must adhere to the provided schema.";
                 
-                const messages = [
+                const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
                     { role: 'system', content: systemPrompt },
                     { role: 'user', content: promptContent }
                 ];
-                jsonStr = await callOpenAI(settings, messages, true);
+                const { content } = await callOpenAI(settings, messages, true);
+                jsonStr = content;
 
             } else { // Google Gemini
-                jsonStr = await callGemini(settings, promptContent, filterFunctionSchema);
+                const { content } = await callGemini(settings, promptContent, filterFunctionSchema);
+                jsonStr = content;
             }
             
             const response = JSON.parse(jsonStr) as AiFilterResponse;

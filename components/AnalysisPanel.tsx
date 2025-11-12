@@ -1,7 +1,14 @@
 import React from 'react';
+import Masonry from 'react-masonry-css';
 import { AnalysisCard } from './AnalysisCard';
 import { FinalSummary } from './FinalSummary';
 import { useAppStore } from '../store/useAppStore';
+
+const breakpointColumnsObj = {
+  default: 1,
+  1024: 2, // lg breakpoint
+  1536: 3  // 2xl breakpoint
+};
 
 export const AnalysisPanel: React.FC = () => {
     const cards = useAppStore(state => state.analysisCards);
@@ -21,14 +28,19 @@ export const AnalysisPanel: React.FC = () => {
     return (
         <div className="p-1">
             {finalSummary && <FinalSummary summary={finalSummary} />}
-            <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-6 mt-6">
+            <Masonry
+                breakpointCols={breakpointColumnsObj}
+                className="masonry-grid mt-6"
+                columnClassName="masonry-grid-column"
+            >
                 {cards.map((card) => (
-                    <AnalysisCard 
-                        key={card.id} 
-                        cardId={card.id}
-                    />
+                    <div key={card.id} className="mb-6">
+                        <AnalysisCard 
+                            cardId={card.id}
+                        />
+                    </div>
                 ))}
-            </div>
+            </Masonry>
         </div>
     );
 };

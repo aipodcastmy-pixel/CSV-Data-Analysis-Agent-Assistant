@@ -1,17 +1,16 @@
-
-import { CsvData, ColumnProfile, Settings, DataPreparationPlan } from '../../types';
+import { CsvData, ColumnProfile, Settings, DataPreparationPlan, CsvRow } from '../../types';
 import { callGemini, callOpenAI } from './apiClient';
 import { dataPreparationSchema } from './schemas';
 import { createDataPreparationPrompt } from '../promptTemplates';
+import OpenAI from 'openai';
 
 export const generateDataPreparationPlan = async (
     columns: ColumnProfile[],
-    sampleData: CsvData['data'],
-    settings: Settings
+    sampleData: CsvRow[],
+    settings: Settings,
+    lastError?: Error
 ): Promise<DataPreparationPlan> => {
     
-    let lastError: Error | undefined;
-
     for(let i=0; i < 3; i++) { // Self-correction loop: 1 initial attempt + 2 retries
         try {
             let jsonStr: string;
@@ -21,15 +20,17 @@ export const generateDataPreparationPlan = async (
                 if (!settings.openAIApiKey) return { explanation: "No transformation needed as API key is not set.", jsFunctionBody: null, outputColumns: columns };
                 const systemPrompt = "You are an expert data engineer. Your task is to analyze a raw dataset and, if necessary, provide a JavaScript function to clean and reshape it into a tidy, analysis-ready format. CRITICALLY, you must also provide the schema of the NEW, transformed data with detailed data types.\nYou MUST respond with a single valid JSON object, and nothing else. The JSON object must adhere to the provided schema.";
                 
-                const messages = [
+                const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
                     { role: 'system', content: systemPrompt },
                     { role: 'user', content: promptContent }
                 ];
-                jsonStr = await callOpenAI(settings, messages, true);
+                const { content } = await callOpenAI(settings, messages, true);
+                jsonStr = content;
 
             } else { // Google Gemini
                 if (!settings.geminiApiKey) return { explanation: "No transformation needed as Gemini API key is not set.", jsFunctionBody: null, outputColumns: columns };
-                jsonStr = await callGemini(settings, promptContent, dataPreparationSchema);
+                const { content } = await callGemini(settings, promptContent, dataPreparationSchema);
+                jsonStr = content;
             }
             
             const plan = JSON.parse(jsonStr) as DataPreparationPlan;

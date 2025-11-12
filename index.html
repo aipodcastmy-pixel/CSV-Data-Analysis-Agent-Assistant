@@ -26,6 +26,17 @@
         },
       }
     </script>
+    <style>
+      .masonry-grid {
+        display: flex;
+        margin-left: -1.5rem; /* Corresponds to gap-6 */
+        width: auto;
+      }
+      .masonry-grid-column {
+        padding-left: 1.5rem; /* Corresponds to gap-6 */
+        background-clip: padding-box;
+      }
+    </style>
     <!-- React -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -49,7 +60,8 @@
     "@google/genai": "https://aistudiocdn.com/@google/genai@^1.28.0",
     "idb": "https://aistudiocdn.com/idb@^8.0.3",
     "zustand": "https://aistudiocdn.com/zustand@^4.5.4",
-    "openai": "https://aistudiocdn.com/openai@^4.52.7"
+    "openai": "https://aistudiocdn.com/openai@^4.52.7",
+    "react-masonry-css": "https://aistudiocdn.com/react-masonry-css@^1.0.16"
   }
 }
 </script>
